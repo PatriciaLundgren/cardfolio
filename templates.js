@@ -32,7 +32,7 @@ window.TEMPLATES = [
   { group: "Around Barkarby", name: "Stockholm Quality Outlet", bg: "#1C1C1E", fg: "#FFFFFF", accent: "#B8A27A", banner: "blend", logo: null },
 
   // Groceries
-  { group: "Groceries", name: "Coop", bg: "#00AA46", fg: "#FFFFFF", accent: "#FFFFFF", banner: "waves", logo: "logos/coop.png" },
+  { group: "Groceries", name: "Coop", bg: "#00AA46", fg: "#FFFFFF", accent: "#FFFFFF", banner: "waves", logo: "logos/coop.png", logoTint: "white" },
   { group: "Groceries", name: "Hemköp", bg: "#E2001A", fg: "#FFFFFF", accent: "#FFFFFF", banner: "blend", logo: "logos/hemkop.png", logoTint: "white" },
   { group: "Groceries", name: "City Gross", bg: "#E30613", fg: "#FFFFFF", accent: "#111111", banner: "stripes", logo: "logos/city-gross.png" },
 
@@ -81,6 +81,7 @@ window.TEMPLATES = [
   { group: "Pets", name: "Musti", bg: "#1C1C1E", fg: "#FFFFFF", accent: "#F28C28", banner: "dots", logo: null },
 
   // Gym and library
+  { group: "Gym and library", name: "Nordic Wellness", bg: "#FFFFFF", fg: "#111111", accent: "#55B848", banner: "waves", logo: "logos/nordic-wellness.png" },
   { group: "Gym and library", name: "SATS", bg: "#111111", fg: "#FFFFFF", accent: "#FFFFFF", banner: "stripes", logo: "logos/sats.png" },
   { group: "Gym and library", name: "Friskis&Svettis", bg: "#1C1C1E", fg: "#FFFFFF", accent: "#F28C28", banner: "waves", logo: null },
   { group: "Gym and library", name: "Library card", bg: "#1C1C1E", fg: "#FFFFFF", accent: "#B79DE8", banner: "blend", logo: null, numberLabel: "Card number" },

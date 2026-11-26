@@ -72,6 +72,7 @@
     created: Date.now(), updated: Date.now(), used: 0,
     ...patch,
   });
+  const autoTint = (bg) => (Color.luminance(bg) > 0.5 ? "black" : "white");
   // logo | logo+name | name. Older cards used showName.
   const brandMode = (c) => c.brandMode || (c.showName ? "logo+name" : "logo");
   const ink = (c) => (c.fg === "auto" || !c.fg ? Color.autoInk(c.bg) : c.fg);
@@ -115,7 +116,7 @@
   function renderPass(c, { edit = false, zone = null, pristine = false } = {}) {
     const fg = ink(c);
     const el = h("div", {
-      class: "pass" + (edit ? " pass--edit" : "") + (pristine ? " pass--pristine" : "") + (edit && zone === "bg" ? " is-bg-active" : ""),
+      class: "pass" + (edit ? " pass--edit" : "") + (pristine ? " pass--pristine" : "") + (edit && zone === "bg" ? " is-bg-active" : "") + (c.textAlign === "center" ? " pass--center" : ""),
       style: `--bg:${c.bg};--fg:${fg};--label:${Color.mix(fg, c.bg, 0.35)}`,
     });
     const z = (name) => (edit ? { "data-zone": name, class: zone === name ? "is-active" : null } : {});
@@ -157,7 +158,7 @@
     } else if (c.code) {
       codeWrap.append(h("div", { class: "code-box" }, h("div", { class: "code-empty" }, "This number doesn’t fit the format. Try Code 128."), h("div", { class: "code-alt" }, c.code)));
     } else if (edit) {
-      codeWrap.append(h("div", { class: "code-box code-box--add" }, h("div", { class: "code-empty" }, "Tap to add the barcode from a screenshot")));
+      codeWrap.append(h("div", { class: "code-box code-box--add" }, h("div", { class: "code-empty" }, "Tap to add your barcode from a screenshot")));
     }
     el.append(codeWrap);
     return el;
@@ -199,8 +200,8 @@
       left: textBtn("Cancel", () => close("sheet-new")),
       title: "Add a card",
       body: h("div", {},
-        option("", ICONS.store, "Choose a store", "A ready-made design. Just add your barcode", () => { close("sheet-new"); openStores(); }),
-        option("", ICONS.photo, "From a screenshot", "Design taken from the store app’s card", () => { close("sheet-new"); fromScreenshot(blankCard()); }),
+        option("", ICONS.photo, "From a screenshot", "Pick a screenshot of your card. The barcode and design are added for you", () => { close("sheet-new"); fromScreenshot(blankCard()); }),
+        option("option--plain", ICONS.store, "Choose a store", "A ready-made design. Just add your barcode", () => { close("sheet-new"); openStores(); }),
         h("div", { class: "divider", role: "separator" }),
         option("option--quiet", ICONS.scan, "Scan a plastic card", "Use the camera to read the barcode", () => { close("sheet-new"); startFromCamera(); }),
         option("option--quiet", ICONS.blank, "Start blank", "Design it from scratch", () => { close("sheet-new"); openEditor(blankCard(), { isNew: true, tab: "preview" }); })
@@ -208,8 +209,9 @@
     });
   }
 
+  const storesState = { q: "", scroll: 0 };
   function openStores() {
-    let q = "";
+    let q = storesState.q;
     const listWrap = h("div");
     const draw = () => {
       listWrap.innerHTML = "";
@@ -226,22 +228,46 @@
           h("div", { class: "group" }, groups[g].map((t) =>
             h("button", { class: "row store-row", type: "button", onclick: () => choose(t) },
               storeLogos[t.name] || t.logo
-                ? h("span", { class: "monogram", style: `background:${t.bg || "var(--surface-2)"}` }, h("img", { src: storeLogos[t.name] || t.logo, alt: "", class: "monogram-logo", loading: "lazy" }))
+                ? h("span", { class: "monogram monogram--logo" }, h("img", { src: storeLogos[t.name] || t.logo, alt: "", class: "monogram-logo", loading: "lazy" }))
                 : h("span", { class: "monogram", style: `background:${t.bg || "var(--surface-2)"};color:${t.fg || "var(--text-1)"}` }, t.name.slice(0, 1)),
               h("span", { class: "row-main row-title" }, t.name), chevron()))));
       });
     };
     const choose = async (t) => {
+      storesState.q = q;
+      storesState.scroll = $("#sheet-stores .sheet-body")?.scrollTop || 0;
       const card = await templateCard(t);
       close("sheet-stores");
-      openEditor(card, { isNew: true, tab: "preview" });
+      openEditor(card, { isNew: true, tab: "preview", fromStores: true });
     };
     sheet("sheet-stores", {
       left: textBtn("Back", () => { close("sheet-stores"); openNew(); }),
       title: "Choose a store",
       body: h("div", {},
-        h("input", { class: "input-solo", type: "search", placeholder: "Search stores", "aria-label": "Search stores", oninput: (e) => { q = e.target.value.trim().toLowerCase(); draw(); } }),
+        h("input", { class: "input-solo", type: "search", placeholder: "Search stores", "aria-label": "Search stores", value: q, oninput: (e) => { q = e.target.value.trim().toLowerCase(); storesState.q = q; draw(); } }),
         listWrap),
+    });
+    draw();
+    requestAnimationFrame(() => { const b = $("#sheet-stores .sheet-body"); if (b) b.scrollTop = storesState.scroll; });
+  }
+
+  // Pick one of the template logos for any card
+  function openLogoPicker(onPick) {
+    let q = "";
+    const grid = h("div", { class: "logo-grid" });
+    const draw = () => {
+      grid.innerHTML = "";
+      TEMPLATES.filter((t) => (storeLogos[t.name] || t.logo) && (!q || t.name.toLowerCase().includes(q))).forEach((t) => {
+        grid.append(h("button", { class: "logo-tile", type: "button", "aria-label": t.name, onclick: () => { close("sheet-logos"); onPick(t); } },
+          h("img", { src: storeLogos[t.name] || t.logo, alt: "", loading: "lazy" }), h("span", {}, t.name)));
+      });
+    };
+    sheet("sheet-logos", {
+      left: textBtn("Back", () => close("sheet-logos")),
+      title: "Store logos",
+      body: h("div", {},
+        h("input", { class: "input-solo", type: "search", placeholder: "Search logos", "aria-label": "Search logos", oninput: (e) => { q = e.target.value.trim().toLowerCase(); draw(); } }),
+        grid),
     });
     draw();
   }
@@ -280,6 +306,37 @@
     };
   }
   async function templateCard(t) { return blankCard(await templateDesign(t)); }
+
+  // Read the text in a screenshot (on the phone, with Tesseract) to spot the store
+  const TESSERACT_SRC = "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";
+  async function readText(canvas) {
+    await loadScript(TESSERACT_SRC);
+    const s = Math.min(1, 1300 / canvas.width);
+    const c = Img.canvasOf(canvas.width * s, canvas.height * s);
+    c.getContext("2d").drawImage(canvas, 0, 0, c.width, c.height);
+    const { data } = await W.withTimeout(Tesseract.recognize(c, "eng"), 30000);
+    return data?.text || "";
+  }
+  const norm = (t) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const TEXT_KEYS = {
+    "Lidl Plus": ["lidl plus", "lidl"], "IKEA Family": ["ikea family", "ikea"], "MAX": ["max burgers", "maxburgers"],
+    "SJ Prio": ["sj prio"], "Scandic Friends": ["scandic"], "Apotek Hjärtat": ["hjartat", "apotek hjartat"],
+    "Kronans Apotek": ["kronans"], "Stockholm Quality Outlet": ["quality outlet"], "Arken Zoo": ["arken zoo", "arken"],
+    "Circle K": ["circle k", "circlek"], "7-Eleven": ["7 eleven", "7eleven"], "Library card": ["bibliotek", "library"],
+    "Friskis&Svettis": ["friskis"], "Nordic Wellness": ["nordic wellness", "nordicwellness"], "XXL": ["xxl"],
+  };
+  function matchByText(text) {
+    const words = " " + norm(text) + " ";
+    let best = null;
+    for (const t of TEMPLATES) {
+      const keys = TEXT_KEYS[t.name] || [norm(t.name)];
+      for (const k of keys) {
+        if (k.length < 3) continue;
+        if (words.includes(" " + k + " ") && (!best || k.length > best.len)) best = { t, len: k.length };
+      }
+    }
+    return best ? best.t : null;
+  }
 
   // Does a screenshot look like one of the templates? Compare card color and logo shape.
   const aHash = async (url) => {
@@ -321,33 +378,36 @@
     return shot;
   }
 
-  // Everything is found automatically: card color, logo, banner and barcode.
-  // Manual cropping is only a fallback when the logo can't be found.
+  // Everything happens automatically: barcode, store recognition, colors and logo.
+  // If the store is recognised, its ready-made design is applied straight away.
   async function fromScreenshot(card) {
     const file = await pickImage();
     if (!file) return;
-    toast("Reading your screenshot…", 8000);
+    toast("Reading your screenshot…", 20000);
     await loadShot(file);
-    card.suggested = shot.palette;
     const codeP = Barcode.fromCanvas(shot.canvas).catch(() => null);
+    const textP = readText(shot.canvas).catch(() => "");
 
+    // Without a template, use the color that covers most of the screenshot
+    card.bg = shot.palette[0] || card.bg;
+    card.suggested = shot.palette;
     const found = Img.analyzeCard(shot.canvas);
-    if (found.color) {
-      card.bg = found.color;
-      card.suggested = [found.color, ...shot.palette.filter((c) => c !== found.color)].slice(0, 6);
-    }
-    if (found.logo) await applyLogoCrop(card, found.logo, found.color);
-    else {
-      const r = await cropFrom("logo", { hint: "We couldn’t spot the logo. Drag a box around it." });
-      if (r) await applyLogoCrop(card, r, "auto");
-    }
+    if (found.logo) await applyLogoCrop(card, found.logo);
     if (found.banner) applyBannerCrop(card, found.banner);
 
-    const code = await codeP;
+    const [code, text] = await Promise.all([codeP, textP]);
     if (code) { card.code = code.text; card.format = code.format; }
-    const match = await matchTemplate(card);
-    toast(code ? "Card created. Tap any part to fine-tune." : "Card created. No barcode found, so tap the barcode area to add it.", 3600);
-    openEditor(card, { isNew: true, tab: "preview", match });
+
+    let applied = null;
+    const byText = matchByText(text);
+    if (byText) {
+      applied = { t: byText, own: JSON.parse(JSON.stringify(card)) };
+      Object.assign(card, await templateDesign(byText), { code: card.code, format: card.format });
+    }
+    const match = applied ? null : await matchTemplate(card);
+    toast(code ? (applied ? applied.t.name + " design added, with your barcode" : "Barcode added. Tap any part to fine-tune.")
+      : "No barcode found. Tap the barcode area to try another screenshot.", 3800);
+    openEditor(card, { isNew: true, tab: "preview", match, applied });
   }
 
   // setBg: a color to use as the card background, "auto" to take it from
@@ -472,9 +532,9 @@
   // =========================================================
   let draft = null, edState = null;
 
-  function openEditor(card, { isNew = false, tab = "preview", zone = null, match = null } = {}) {
+  function openEditor(card, { isNew = false, tab = "preview", zone = null, match = null, applied = null, fromStores = false } = {}) {
     draft = JSON.parse(JSON.stringify(card));
-    edState = { isNew, tab, zone, touched: false, open: new Set(), focus: null, match };
+    edState = { isNew, tab, zone, touched: false, open: new Set(), focus: null, match, applied, fromStores };
     if (!isNew) shot = null;
     renderEditor();
   }
@@ -484,7 +544,7 @@
       ["preview", "fields"].map((t) => h("button", { type: "button", "aria-pressed": String(edState.tab === t), onclick: () => { edState.tab = t; renderEditor(); } }, t === "preview" ? "Design" : "Details")));
     const body = edState.tab === "preview" ? designView() : fieldsView();
     sheet("sheet-editor", {
-      left: textBtn("Cancel", () => { close("sheet-editor"); shot = null; }),
+      left: textBtn(edState.fromStores ? "Back" : "Cancel", () => { close("sheet-editor"); shot = null; if (edState.fromStores) openStores(); }),
       title: seg,
       right: textBtn("Save", saveDraft, true),
       body,
@@ -521,7 +581,15 @@
           edState.match = null; renderEditor(); toast(m.name + " design applied");
         } }, "Use design"),
         h("button", { class: "btn btn--ghost btn--small", type: "button", onclick: () => { edState.match = null; matchBar.remove(); } }, "Keep mine"))) : null;
-    wrap.append(...(matchBar ? [matchBar] : []), passHolder, toolHolder);
+    const ap = edState.applied;
+    const appliedBar = ap ? h("div", { class: "match-bar" },
+      h("span", {}, "Using the ready-made ", h("strong", {}, ap.t.name), " design."),
+      h("div", { class: "btn-row" },
+        h("button", { class: "btn btn--ghost btn--small", type: "button", onclick: () => {
+          Object.assign(draft, ap.own, { code: draft.code, format: draft.format, number: draft.number, memberName: draft.memberName });
+          edState.applied = null; renderEditor();
+        } }, "Use my screenshot’s look instead"))) : null;
+    wrap.append(...[matchBar, appliedBar].filter(Boolean), passHolder, toolHolder);
     paint(); paintTool();
     return wrap;
   }
@@ -600,9 +668,16 @@
     if (zone === "logo") {
       return tool("Logo",
         h("div", { class: "btn-row" },
-          shot ? h("button", { class: "btn btn--secondary btn--small", type: "button", onclick: () => cropInto("logo") }, shot.logoRect ? "Adjust crop" : "Crop from screenshot") : null,
-          h("button", { class: "btn btn--secondary btn--small", type: "button", onclick: () => logoFile(paint, paintTool) }, "Logo file (PNG)"),
-          h("button", { class: "btn btn--secondary btn--small", type: "button", onclick: () => newImage("logo") }, "Crop from image")),
+          h("button", { class: "btn btn--secondary btn--small", type: "button", onclick: () => openLogoPicker(async (t) => {
+            const src = await templateLogo(t);
+            const tint = t.logoTint ? autoTint(draft.bg) : "original";
+            draft.logoSrc = src; draft.logoTint = tint; draft.logoRemoveBg = false;
+            draft.logo = tint !== "original" ? await Img.processLogo(src, { removeBg: false, tint }) : src;
+            if (!draft.name) draft.name = t.name;
+            paint(); paintTool();
+          }) }, "Store logos"),
+          shot ? h("button", { class: "btn btn--secondary btn--small", type: "button", onclick: () => cropInto("logo") }, shot.logoRect ? "Adjust crop" : "From your screenshot") : null,
+          h("button", { class: "btn btn--secondary btn--small", type: "button", onclick: () => logoFile(paint, paintTool) }, "From Photos")),
         draft.logoSrc ? [
           h("div", { class: "tool-row" }, h("label", {}, "Remove background"), sw(draft.logoRemoveBg, (v) => { draft.logoRemoveBg = v; reprocessLogo(); paintTool(); }, "Remove background")),
           draft.logoRemoveBg ? h("div", { class: "tool-row", style: "display:block" },
@@ -624,13 +699,22 @@
       );
     }
     if (zone === "banner") {
-      const accent = draft.accent || TEMPLATES.find((t) => t.name === draft.template)?.accent;
+      const tplAccent = TEMPLATES.find((t) => t.name === draft.template)?.accent;
+      const accent = draft.accent || tplAccent;
       const pickStyle = (style) => { draft.bannerStyle = style; draft.banner = style ? W.Banners.render(style, draft.bg, accent) : null; paint(); paintTool(); };
+      const pickAccent = (c) => { draft.accent = c; if (draft.bannerStyle) draft.banner = W.Banners.render(draft.bannerStyle, draft.bg, c); paint(); paintTool(); };
+      const accents = [...new Set([tplAccent, "#FFFFFF", "#111111", Color.mix(draft.bg, "#FFFFFF", 0.4), Color.mix(draft.bg, "#000000", 0.4), ...(draft.suggested || []).slice(0, 3)].filter(Boolean).map((c) => c.toUpperCase()))];
       return tool("Banner",
         h("div", { class: "banner-options", role: "radiogroup", "aria-label": "Banner style" },
           h("button", { class: "banner-option banner-option--none", type: "button", role: "radio", "aria-checked": String(!draft.banner), onclick: () => pickStyle(null) }, "None"),
           W.Banners.STYLES.map((st) => h("button", { class: "banner-option", type: "button", role: "radio", "aria-checked": String(draft.bannerStyle === st && !!draft.banner), "aria-label": W.Banners.LABELS[st],
             style: `background-image:url(${W.Banners.render(st, draft.bg, accent)})`, onclick: () => pickStyle(st) }, h("span", {}, W.Banners.LABELS[st])))),
+        draft.bannerStyle ? h("div", { style: "margin-top:16px" },
+          h("div", { class: "swatch-label" }, "Pattern color"),
+          h("div", { class: "swatches" },
+            accents.map((c) => h("button", { class: "swatch", type: "button", role: "radio", "aria-checked": String((accent || "").toUpperCase() === c), "aria-label": c, style: `background:${c}`, onclick: () => pickAccent(c) })),
+            h("label", { class: "swatch swatch--custom", "aria-label": "Custom pattern color" },
+              h("input", { type: "color", value: accent || "#FFFFFF", onchange: (e) => pickAccent(e.target.value) })))) : null,
         h("div", { class: "btn-row", style: "margin-top:12px" },
           shot ? h("button", { class: "btn btn--secondary btn--small", type: "button", onclick: async () => { await cropInto("banner"); draft.bannerStyle = null; } }, shot.bannerRect ? "Adjust crop" : "Crop from screenshot") : null,
           h("button", { class: "btn btn--secondary btn--small", type: "button", onclick: async () => { await newImage("banner"); draft.bannerStyle = null; } }, "Use your own image")),
@@ -641,6 +725,9 @@
       focusPending();
       return tool("Text on card",
         ...optionalFields((key, remove) => optionalField(key, remove, paint), { detailsOnly: false }),
+        h("div", { style: "margin-top:16px" },
+          h("div", { class: "swatch-label" }, "Text position"),
+          seg([["left", "Left"], ["center", "Center"]], draft.textAlign || "left", (v) => { draft.textAlign = v; paint(); paintTool(); }, "Text position")),
         h("p", { class: "note" }, "Notes and expiry date are under Details.")
       );
     }
@@ -651,12 +738,7 @@
           h("button", { class: "btn btn--secondary btn--small", type: "button", onclick: async () => {
             const r = await scanWithCamera(); if (r) { draft.code = r.text; draft.format = r.format; paint(); paintTool(); toast("Barcode added"); }
           } }, "Scan with camera"),
-          h("button", { class: "btn btn--secondary btn--small", type: "button", onclick: async () => {
-            if (!shot) { const fl = await pickImage(); if (!fl) return; await loadShot(fl); }
-            const r = await Barcode.fromCanvas(shot.canvas).catch(() => null);
-            if (r) { draft.code = r.text; draft.format = r.format; paint(); paintTool(); toast("Barcode found"); }
-            else toast("No barcode found in that image");
-          } }, shot ? "Read from screenshot" : "Read from image")),
+          h("button", { class: "btn btn--secondary btn--small", type: "button", onclick: () => barcodeFromScreenshot(paint, paintTool) }, "From a screenshot")),
         h("div", { class: "tool-stack", style: "margin-top:12px" },
           h("input", { class: "input-solo", value: draft.code, placeholder: "Barcode number or text", inputmode: "text", "aria-label": "Barcode", oninput: (e) => { draft.code = e.target.value.trim(); paint(); } }),
           h("select", { class: "input-solo", "aria-label": "Barcode format", onchange: (e) => { draft.format = e.target.value; paint(); paintTool(); } },
@@ -668,7 +750,20 @@
     // Changing the card color also recolors a generated banner
     const setBg = (c) => {
       draft.bg = c;
+      // Keep text readable: a fixed text color with too little contrast goes back to automatic
+      if (draft.fg && draft.fg !== "auto") {
+        const L1 = Color.luminance(c), L2 = Color.luminance(draft.fg);
+        if ((Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05) < 3) draft.fg = "auto";
+      }
       if (draft.bannerStyle) draft.banner = W.Banners.render(draft.bannerStyle, c, draft.accent || TEMPLATES.find((t) => t.name === draft.template)?.accent);
+      // A white logo on a light card (or black on dark) switches to the version that shows
+      if (draft.logoSrc && draft.logoTint !== "original") {
+        const tint = autoTint(c);
+        if (tint !== draft.logoTint) {
+          draft.logoTint = tint;
+          Img.processLogo(draft.logoSrc, { removeBg: draft.logoRemoveBg, tolerance: draft.logoTolerance, tint }).then((l) => { draft.logo = l; paint(); });
+        }
+      }
     };
     if (zone === "bg") {
       const swatches = (list, label) => list?.length ? h("div", { style: "margin-bottom:16px" }, h("div", { class: "swatch-label" }, label),

@@ -340,6 +340,9 @@
   })).get(src);
 
   const SCANNER_SRC = "https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js";
+  const ZXING_SRC = "https://cdn.jsdelivr.net/npm/zxing-wasm@3.1.5/dist/iife/reader/index.js";
+  const ZX_MAP = { qrcode: "qr", microqrcode: "qr", ean13: "ean13", ean8: "ean8", upca: "upca", code128: "code128", code39: "code39", pdf417: "pdf417", aztec: "aztec" };
+  const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
 
   const Barcode = {
     FORMATS,
@@ -360,24 +363,42 @@
       bwipjs.toCanvas(c, opts);
       return c;
     },
-    // Find a barcode in an image. Tries the browser's own detector first.
+    // Find a barcode in an image. Uses ZXing (WebAssembly), which reads QR codes and
+    // shop barcodes reliably even when they're small in a full-phone screenshot.
+    // Tries a few sizes, then the browser's own detector, then the older scanner.
     async fromCanvas(c) {
+      const sized = (max) => {
+        const s = Math.min(1, max / Math.max(c.width, c.height));
+        if (s === 1) return c;
+        const t = canvasOf(c.width * s, c.height * s);
+        t.getContext("2d").drawImage(c, 0, 0, t.width, t.height);
+        return t;
+      };
+      try {
+        await loadScript(ZXING_SRC);
+        for (const cv of [c, sized(1400), sized(800)]) {
+          const img = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height);
+          const res = await withTimeout(ZXingWASM.readBarcodes(img, { tryHarder: true, maxNumberOfSymbols: 1 }), 9000).catch(() => []);
+          const hit = res.find((r) => r.isValid && r.text);
+          if (hit) return { text: hit.text, format: ZX_MAP[hit.format.toLowerCase().replace(/[^a-z0-9]/g, "")] || "code128" };
+        }
+      } catch { /* fall through */ }
       if ("BarcodeDetector" in window) {
         try {
           const found = await new BarcodeDetector().detect(c);
           if (found[0]) return { text: found[0].rawValue, format: SCAN_MAP[found[0].format] || "code128" };
         } catch { /* fall through */ }
       }
-      await loadScript(SCANNER_SRC);
-      const holder = document.getElementById("scan-file");
-      const scanner = new Html5Qrcode("scan-file", { verbose: false });
-      const blob = await new Promise((r) => c.toBlob(r, "image/png"));
-      const file = new File([blob], "shot.png", { type: "image/png" });
       try {
-        const r = await scanner.scanFileV2(file, false);
-        return { text: r.decodedText, format: SCAN_MAP[r.result?.format?.formatName] || "code128" };
+        await loadScript(SCANNER_SRC);
+        const holder = document.getElementById("scan-file");
+        const scanner = new Html5Qrcode("scan-file", { verbose: false });
+        const blob = await new Promise((r) => sized(1400).toBlob(r, "image/png"));
+        try {
+          const r = await withTimeout(scanner.scanFileV2(new File([blob], "shot.png", { type: "image/png" }), false), 8000);
+          return { text: r.decodedText, format: SCAN_MAP[r.result?.format?.formatName] || "code128" };
+        } finally { try { scanner.clear(); } catch {} holder.innerHTML = ""; }
       } catch { return null; }
-      finally { try { scanner.clear(); } catch {} holder.innerHTML = ""; }
     },
     async startCamera(elementId, onFound) {
       await loadScript(SCANNER_SRC);
@@ -391,5 +412,5 @@
     },
   };
 
-  window.W = { Store, Color, Img, Barcode, loadScript };
+  window.W = { Store, Color, Img, Barcode, loadScript, withTimeout };
 })();
