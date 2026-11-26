@@ -63,6 +63,15 @@ button { cursor: pointer; }
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 img { max-width: 100%; }
 
+/* iOS 26+ blurs the top edge of web pages under the status bar (the Liquid Glass
+   scroll edge effect). WebKit skips that blur when a full-width fixed bar with a
+   solid color sits at the very top, so this strip gives it one in our background. */
+body::before {
+  content: ""; position: fixed; top: 0; left: 0; right: 0; z-index: 40;
+  height: max(12px, env(safe-area-inset-top, 0px));
+  background: var(--bg); pointer-events: none;
+}
+
 /* ---------- Buttons ---------- */
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: var(--s-2);
