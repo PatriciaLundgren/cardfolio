@@ -45,7 +45,7 @@
   const saveCards = () => Store.set("cards", cards).catch(() => toast("Couldn’t save. Storage may be full."));
   const saveSettings = () => Store.set("settings", settings);
 
-  const PALETTE = ["#000000", "#1C1C1E", "#3A3A3C", "#8E8E93", "#FFFFFF", "#E4002B", "#F26B1D", "#FFC72C", "#00843D", "#0B3D2E", "#0057B8", "#002F6C", "#6D2077", "#E5007E"];
+  const PALETTE = ["#B79DE8", "#621551", "#B3DFBE", "#FECAAC", "#FCF1DC", "#F7907A", "#000000", "#1C1C1E", "#3A3A3C", "#8E8E93", "#FFFFFF", "#E4002B", "#F26B1D", "#FFC72C", "#00843D", "#0B3D2E", "#0057B8", "#002F6C", "#6D2077", "#E5007E"];
 
   const blankCard = (patch = {}) => ({
     id: uid(), name: "", showName: false,
@@ -229,7 +229,7 @@
       left: textBtn("Cancel", () => close("sheet-new")),
       title: card.name,
       body: h("div", { style: "padding-top:24px;text-align:center" },
-        h("div", { class: "app-mark app-mark--large" }, h("i"), h("i"), h("i")),
+        h("img", { class: "app-icon", src: "logo.svg", alt: "" }),
         h("h2", { class: "sheet-h" }, "Add a screenshot of your card"),
         h("p", { class: "sheet-lede" }, `Open the ${card.name} app, show your member card and take a screenshot. You’ll crop the logo next.`)),
       foot: h("div", { class: "tool-stack" },

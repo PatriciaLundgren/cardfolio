@@ -10,6 +10,10 @@ A personal member card wallet. Design cards from screenshots of store apps, then
 
 To update: upload the changed files and bump `cardfolio-v1` in `sw.js`.
 
+## Brand
+
+Lilac (`#B79DE8`) on aubergine (`#0F0B14`), with plum, mint, peach, cream and coral from the logo. Open `brand.html` for the full guide. Design tokens live at the top of `styles.css`.
+
 ## Apple Wallet
 
 Needs an Apple Developer account. In the app: Settings > Wallet signing, and follow the four steps. The signing key stays on your phone. Back it up from the same screen.
@@ -23,3 +27,5 @@ Needs an Apple Developer account. In the app: Settings > Wallet signing, and fol
 - `pkpass.js`: Apple Wallet signing and pass builder
 - `templates.js`: store list, easy to extend
 - `sw.js`: offline support
+- `logo.svg`, `mark.svg`: app icon and mark
+- `brand.html`: brand guide

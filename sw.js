@@ -1,6 +1,6 @@
 // Offline support. Bump the version after you change files.
-const CACHE = "cardfolio-v1";
-const CORE = ["./", "index.html", "styles.css", "app.js", "core.js", "pkpass.js", "templates.js", "manifest.webmanifest", "icon-180.png", "icon-192.png", "icon-512.png"];
+const CACHE = "cardfolio-v2";
+const CORE = ["./", "index.html", "styles.css", "app.js", "core.js", "pkpass.js", "templates.js", "manifest.webmanifest", "icon-180.png", "icon-192.png", "icon-512.png", "logo.svg", "mark.svg", "brand.html"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(CORE)).then(() => self.skipWaiting()));
