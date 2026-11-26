@@ -1,14 +1,16 @@
 /* Cardfolio signing relay — a tiny Cloudflare Worker (free plan).
    Cardfolio sends the card design here; the Worker asks the free
    walletmcppass.com service to sign it and returns a download link
-   for the finished Apple Wallet pass. Nothing is stored here. */
+   for the finished Apple Wallet pass. Nothing is stored here.
+   The service asks for a contact email; set it as the secret CONTACT_EMAIL
+   in the Worker's settings so it never appears in this code. */
 
 const ALLOWED_ORIGINS = ["https://patricialundgren.github.io"];
 const SIGNER = "https://walletmcppass.com/mcp";
 const MAX_BODY = 3_000_000;
 
 export default {
-  async fetch(request) {
+  async fetch(request, env) {
     const origin = request.headers.get("Origin") || "";
     const allowed = ALLOWED_ORIGINS.includes(origin);
     const cors = {
@@ -30,7 +32,8 @@ export default {
     try { args = JSON.parse(body); } catch { return json({ error: "Invalid request" }, 400); }
 
     try {
-      return json(await createPass(args));
+      if (!env.CONTACT_EMAIL) return json({ error: "The relay is missing its CONTACT_EMAIL setting" }, 500);
+      return json(await createPass({ ...args, contact_email: env.CONTACT_EMAIL, x402_ready: false }));
     } catch (e) {
       const limited = /\b(402|429)\b/.test(e.message);
       return json({ error: limited ? "The free signing limit for today is used up. Try again after 01:00 Swedish time." : e.message }, limited ? 429 : 502);
