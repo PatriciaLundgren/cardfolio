@@ -62,7 +62,7 @@
   const PALETTE = ["#B79DE8", "#621551", "#B3DFBE", "#FECAAC", "#FCF1DC", "#F7907A", "#000000", "#1C1C1E", "#3A3A3C", "#8E8E93", "#FFFFFF", "#E4002B", "#F26B1D", "#FFC72C", "#00843D", "#0B3D2E", "#0057B8", "#002F6C", "#6D2077", "#E5007E"];
 
   const blankCard = (patch = {}) => ({
-    id: uid(), name: "", showName: false,
+    id: uid(), name: "", brandMode: "logo", template: null, bannerStyle: null,
     logo: null, logoSrc: null, logoRemoveBg: true, logoTolerance: 20, logoTint: "original",
     banner: null, bg: "#1C1C1E", fg: "auto", suggested: [],
     headerLabel: "", headerValue: "", memberName: "",
@@ -72,6 +72,8 @@
     created: Date.now(), updated: Date.now(), used: 0,
     ...patch,
   });
+  // logo | logo+name | name. Older cards used showName.
+  const brandMode = (c) => c.brandMode || (c.showName ? "logo+name" : "logo");
   const ink = (c) => (c.fg === "auto" || !c.fg ? Color.autoInk(c.bg) : c.fg);
 
   // ---------- File pickers ----------
@@ -118,12 +120,16 @@
     });
     const z = (name) => (edit ? { "data-zone": name, class: zone === name ? "is-active" : null } : {});
 
-    // Header: logo only by default, name as a clean fallback
+    // Header: logo in the top left. The name shows next to it, or alone, if you choose.
+    const mode = brandMode(c);
     const brand = h("div", { class: "pass-brand" });
-    if (c.logo) brand.append(h("img", { class: "pass-logo", src: c.logo, alt: c.name || "Logo" }));
-    if (!c.logo || c.showName) brand.append(h("span", { class: "pass-logotext" + (!c.name ? " pass-placeholder" : "") }, c.name || (edit ? "Add a logo" : "Card")));
+    const wantsLogo = mode !== "name";
+    if (wantsLogo && c.logo) brand.append(h("img", { class: "pass-logo", src: c.logo, alt: c.name || "Logo" }));
+    else if (wantsLogo && edit) brand.append(h("span", { class: "logo-placeholder" }, "Logo"));
+    const showText = mode !== "logo" || (!c.logo && !edit);
+    if (showText) brand.append(h("span", { class: "pass-logotext" + (!c.name ? " pass-placeholder" : "") }, c.name || (edit ? "Store name" : "Card")));
     const head = h("div", { class: "pass-head" },
-      h("div", { ...z("logo"), class: ["pass-brand-zone", zone === "logo" && edit ? "is-active" : ""].join(" "), style: "height:100%;display:flex;align-items:center;min-width:0;flex:1;margin-left:-8px;padding-left:8px" }, brand),
+      h("div", { ...z("logo"), class: ["pass-brand-zone", zone === "logo" && edit ? "is-active" : ""].join(" ") }, brand),
       c.headerValue || (edit && zone === "fields")
         ? h("div", { class: "pass-headfield" }, h("div", { class: "pass-label" }, c.headerLabel || ""), h("div", { class: "pass-value" }, c.headerValue || ""))
         : null
@@ -151,7 +157,7 @@
     } else if (c.code) {
       codeWrap.append(h("div", { class: "code-box" }, h("div", { class: "code-empty" }, "This number doesn’t fit the format. Try Code 128."), h("div", { class: "code-alt" }, c.code)));
     } else if (edit) {
-      codeWrap.append(h("div", { class: "code-box" }, h("div", { class: "code-empty" }, "Add a barcode")));
+      codeWrap.append(h("div", { class: "code-box code-box--add" }, h("div", { class: "code-empty" }, "Tap to add the barcode from a screenshot")));
     }
     el.append(codeWrap);
     return el;
@@ -193,11 +199,11 @@
       left: textBtn("Cancel", () => close("sheet-new")),
       title: "Add a card",
       body: h("div", {},
-        h("p", { class: "sheet-lede" }, "Open the store’s app, take a screenshot of your member card, then choose it here."),
-        option("option--featured", ICONS.photo, "From a screenshot", "Logo, colors and barcode are picked up for you", () => { close("sheet-new"); fromScreenshot(blankCard()); }),
-        option("", ICONS.store, "Choose a store", "Swedish stores, with the name filled in", () => { close("sheet-new"); openStores(); }),
-        option("", ICONS.scan, "Scan a plastic card", "Use the camera to read the barcode", () => { close("sheet-new"); startFromCamera(); }),
-        option("", ICONS.blank, "Start blank", "Design it from scratch", () => { close("sheet-new"); openEditor(blankCard(), { isNew: true, tab: "preview" }); })
+        option("", ICONS.store, "Choose a store", "A ready-made design. Just add your barcode", () => { close("sheet-new"); openStores(); }),
+        option("", ICONS.photo, "From a screenshot", "Design taken from the store app’s card", () => { close("sheet-new"); fromScreenshot(blankCard()); }),
+        h("div", { class: "divider", role: "separator" }),
+        option("option--quiet", ICONS.scan, "Scan a plastic card", "Use the camera to read the barcode", () => { close("sheet-new"); startFromCamera(); }),
+        option("option--quiet", ICONS.blank, "Start blank", "Design it from scratch", () => { close("sheet-new"); openEditor(blankCard(), { isNew: true, tab: "preview" }); })
       ),
     });
   }
@@ -219,18 +225,16 @@
         listWrap.append(h("div", { class: "section-label" }, g),
           h("div", { class: "group" }, groups[g].map((t) =>
             h("button", { class: "row store-row", type: "button", onclick: () => choose(t) },
-              storeLogos[t.name]
-                ? h("span", { class: "monogram", style: `background:${t.bg || "var(--surface-2)"}` }, h("img", { src: storeLogos[t.name], alt: "", class: "monogram-logo" }))
+              storeLogos[t.name] || t.logo
+                ? h("span", { class: "monogram", style: `background:${t.bg || "var(--surface-2)"}` }, h("img", { src: storeLogos[t.name] || t.logo, alt: "", class: "monogram-logo", loading: "lazy" }))
                 : h("span", { class: "monogram", style: `background:${t.bg || "var(--surface-2)"};color:${t.fg || "var(--text-1)"}` }, t.name.slice(0, 1)),
               h("span", { class: "row-main row-title" }, t.name), chevron()))));
       });
     };
-    const choose = (t) => {
+    const choose = async (t) => {
+      const card = await templateCard(t);
       close("sheet-stores");
-      const logo = storeLogos[t.name];
-      const card = blankCard({ name: t.name, numberLabel: t.numberLabel || "Member number", bg: t.bg || "#1C1C1E", fg: t.fg || "auto",
-        ...(logo ? { logo, logoSrc: logo, logoRemoveBg: false } : {}) });
-      askScreenshot(card);
+      openEditor(card, { isNew: true, tab: "preview" });
     };
     sheet("sheet-stores", {
       left: textBtn("Back", () => { close("sheet-stores"); openNew(); }),
@@ -242,24 +246,68 @@
     draw();
   }
 
-  function askScreenshot(card) {
-    sheet("sheet-new", {
-      left: textBtn("Cancel", () => close("sheet-new")),
-      title: card.name,
-      body: h("div", { style: "padding-top:24px;text-align:center" },
-        h("img", { class: "app-icon", src: "logo.svg", alt: "" }),
-        h("h2", { class: "sheet-h" }, "Add a screenshot of your card"),
-        h("p", { class: "sheet-lede" }, `Open the ${card.name} app, show your member card and take a screenshot. We’ll do the rest.`)),
-      foot: h("div", { class: "tool-stack" },
-        h("button", { class: "btn btn--primary btn--block", type: "button", onclick: () => { close("sheet-new"); fromScreenshot(card); } }, "Choose screenshot"),
-        !card.logo ? h("button", { class: "btn btn--secondary btn--block", type: "button", onclick: async () => {
-          const f = await pickImage(); if (!f) return;
-          const logo = await cleanLogo(f);
-          close("sheet-new");
-          openEditor({ ...card, logo, logoSrc: logo, logoRemoveBg: false }, { isNew: true, tab: "preview", zone: "code" });
-        } }, "I have a logo file") : null,
-        h("button", { class: "btn btn--ghost btn--block", type: "button", onclick: () => { close("sheet-new"); openEditor(card, { isNew: true, tab: "preview" }); } }, "Skip and design it myself")),
-    });
+  // ---------- Templates ----------
+  const toDataURL = async (url) => {
+    try {
+      const blob = await (await fetch(url)).blob();
+      return await new Promise((r) => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(blob); });
+    } catch { return null; }
+  };
+  async function templateLogo(t) {
+    if (storeLogos[t.name]) return storeLogos[t.name];
+    if (!t.logo) return null;
+    const url = await toDataURL(t.logo);
+    if (!url) return null;
+    let c = await Img.fromDataURL(url).catch(() => null);
+    if (!c) return url;
+    const d = c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
+    let transparent = false;
+    for (let i = 3; i < d.length; i += 16) if (d[i] < 250) { transparent = true; break; }
+    if (!transparent) c = Img.removeBackground(c, 20);
+    return Img.trim(c).toDataURL("image/png");
+  }
+  // The full ready-made design for a store
+  async function templateDesign(t) {
+    const logo = await templateLogo(t);
+    const style = t.banner || null;
+    return {
+      name: t.name, template: t.name, numberLabel: t.numberLabel || "Member number",
+      bg: t.bg || "#1C1C1E", fg: t.fg || "auto", accent: t.accent || null,
+      logo, logoSrc: logo, logoRemoveBg: false, logoTint: "original", brandMode: logo ? "logo" : "name",
+      bannerStyle: style, banner: style ? W.Banners.render(style, t.bg || "#1C1C1E", t.accent) : null,
+    };
+  }
+  async function templateCard(t) { return blankCard(await templateDesign(t)); }
+
+  // Does a screenshot look like one of the templates? Compare card color and logo shape.
+  const aHash = async (url) => {
+    const img = await Img.loadURL(url);
+    const c = Img.canvasOf(8, 8), x = c.getContext("2d");
+    x.fillStyle = "#fff"; x.fillRect(0, 0, 8, 8); x.drawImage(img, 0, 0, 8, 8);
+    const d = x.getImageData(0, 0, 8, 8).data, g = [];
+    for (let i = 0; i < d.length; i += 4) g.push(d[i] * 0.3 + d[i + 1] * 0.59 + d[i + 2] * 0.11);
+    const avg = g.reduce((a, b) => a + b, 0) / g.length;
+    return g.map((v) => v > avg);
+  };
+  async function matchTemplate(card) {
+    if (!card.bg) return null;
+    const [r, g, b] = Color.hexToRgb(card.bg);
+    const near = TEMPLATES.filter((t) => t.bg && t.bg !== "#1C1C1E" && t.bg !== "#111111" && t.bg !== "#1A1A1A")
+      .map((t) => { const [tr, tg, tb] = Color.hexToRgb(t.bg); return { t, d: Math.hypot(r - tr, g - tg, b - tb) }; })
+      .filter((x) => x.d < 70).sort((a, b) => a.d - b.d);
+    if (!near.length) return null;
+    if (!card.logo) return near.length === 1 ? near[0].t : null;
+    const mine = await aHash(card.logo).catch(() => null);
+    let best = null;
+    for (const { t, d } of near.slice(0, 6)) {
+      const logo = storeLogos[t.name] || t.logo;
+      if (!logo || !mine) continue;
+      const theirs = await aHash(logo).catch(() => null);
+      if (!theirs) continue;
+      const diff = theirs.reduce((n, v, i) => n + (v !== mine[i]), 0);
+      if (diff <= 16 && (!best || diff + d / 10 < best.score)) best = { t, score: diff + d / 10 };
+    }
+    return best ? best.t : null;
   }
 
   // ---------- Screenshot flow ----------
@@ -295,8 +343,9 @@
 
     const code = await codeP;
     if (code) { card.code = code.text; card.format = code.format; }
+    const match = await matchTemplate(card);
     toast(code ? "Card created. Tap any part to fine-tune." : "Card created. No barcode found, so tap the barcode area to add it.", 3600);
-    openEditor(card, { isNew: true, tab: "preview" });
+    openEditor(card, { isNew: true, tab: "preview", match });
   }
 
   // setBg: a color to use as the card background, "auto" to take it from
@@ -421,9 +470,9 @@
   // =========================================================
   let draft = null, edState = null;
 
-  function openEditor(card, { isNew = false, tab = "preview", zone = null } = {}) {
+  function openEditor(card, { isNew = false, tab = "preview", zone = null, match = null } = {}) {
     draft = JSON.parse(JSON.stringify(card));
-    edState = { isNew, tab, zone, touched: false, open: new Set(), focus: null };
+    edState = { isNew, tab, zone, touched: false, open: new Set(), focus: null, match };
     if (!isNew) shot = null;
     renderEditor();
   }
@@ -448,10 +497,11 @@
     const paint = () => {
       passHolder.innerHTML = "";
       const p = renderPass(draft, { edit: true, zone: edState.zone });
-      p.addEventListener("click", (e) => {
+      p.addEventListener("click", async (e) => {
         const z = e.target.closest("[data-zone]")?.dataset.zone || "bg";
         edState.zone = z;
         paint(); paintTool();
+        if (z === "code" && !draft.code) await barcodeFromScreenshot(paint, paintTool);
       });
       passHolder.append(p);
     };
@@ -459,7 +509,17 @@
       toolHolder.innerHTML = "";
       toolHolder.append(edState.zone ? toolFor(edState.zone, paint, paintTool) : h("p", { class: "editor-hint" }, "Tap any part of the card to change it"));
     };
-    wrap.append(passHolder, toolHolder);
+    const m = edState.match;
+    const matchBar = m ? h("div", { class: "match-bar" },
+      h("span", {}, "Looks like ", h("strong", {}, m.name), ". Use its ready-made design?"),
+      h("div", { class: "btn-row" },
+        h("button", { class: "btn btn--primary btn--small", type: "button", onclick: async () => {
+          const keep = { code: draft.code, format: draft.format, number: draft.number, memberName: draft.memberName };
+          Object.assign(draft, await templateDesign(m), keep);
+          edState.match = null; renderEditor(); toast(m.name + " design applied");
+        } }, "Use design"),
+        h("button", { class: "btn btn--ghost btn--small", type: "button", onclick: () => { edState.match = null; matchBar.remove(); } }, "Keep mine"))) : null;
+    wrap.append(...(matchBar ? [matchBar] : []), passHolder, toolHolder);
     paint(); paintTool();
     return wrap;
   }
@@ -503,6 +563,15 @@
     toast("Logo added");
   }
 
+  async function barcodeFromScreenshot(paint, paintTool) {
+    const f = await pickImage(); if (!f) return;
+    toast("Reading the barcode…", 6000);
+    const c = await Img.fromFile(f);
+    const r = await Barcode.fromCanvas(c).catch(() => null);
+    if (r) { draft.code = r.text; draft.format = r.format; paint(); paintTool(); toast("Barcode added"); }
+    else toast("No barcode found in that image. Try a sharper screenshot, or type the number.", 4200);
+  }
+
   function toolFor(zone, paint, paintTool) {
     const tool = (title, ...content) => h("div", { class: "tool" }, h("div", { class: "tool-title" }, title), ...content);
     const reprocessLogo = async () => {
@@ -542,7 +611,9 @@
             h("div", { class: "swatch-label" }, "Logo color"),
             seg([["original", "Original"], ["white", "White"], ["black", "Black"]], draft.logoTint, (v) => { draft.logoTint = v; reprocessLogo(); paintTool(); }, "Logo color")),
         ] : null,
-        h("div", { class: "tool-row" }, h("label", {}, "Show store name"), sw(draft.showName, (v) => { draft.showName = v; paint(); }, "Show store name")),
+        h("div", { class: "tool-row", style: "display:block" },
+          h("div", { class: "swatch-label" }, "Show"),
+          seg([["logo", "Logo"], ["logo+name", "Logo and name"], ["name", "Name only"]], brandMode(draft), (v) => { draft.brandMode = v; delete draft.showName; paint(); paintTool(); }, "What to show in the top left")),
         h("div", { class: "tool-row", style: "display:block" },
           h("div", { class: "swatch-label" }, "Store name"),
           h("input", { class: "input-solo", value: draft.name, placeholder: "e.g. Clas Ohlson", oninput: (e) => { draft.name = e.target.value; paint(); } })),
@@ -551,12 +622,17 @@
       );
     }
     if (zone === "banner") {
+      const accent = draft.accent || TEMPLATES.find((t) => t.name === draft.template)?.accent;
+      const pickStyle = (style) => { draft.bannerStyle = style; draft.banner = style ? W.Banners.render(style, draft.bg, accent) : null; paint(); paintTool(); };
       return tool("Banner",
-        h("div", { class: "btn-row" },
-          shot ? h("button", { class: "btn btn--secondary btn--small", type: "button", onclick: () => cropInto("banner") }, shot.bannerRect ? "Adjust crop" : "Crop from screenshot") : null,
-          h("button", { class: "btn btn--secondary btn--small", type: "button", onclick: () => newImage("banner") }, "Choose image")),
-        h("p", { class: "note" }, "A wide image under the logo. Leave it empty for a cleaner card."),
-        draft.banner ? h("button", { class: "btn btn--danger btn--small", type: "button", style: "padding:0;margin-top:8px", onclick: () => { draft.banner = null; paint(); paintTool(); } }, "Remove banner") : null
+        h("div", { class: "banner-options", role: "radiogroup", "aria-label": "Banner style" },
+          h("button", { class: "banner-option banner-option--none", type: "button", role: "radio", "aria-checked": String(!draft.banner), onclick: () => pickStyle(null) }, "None"),
+          W.Banners.STYLES.map((st) => h("button", { class: "banner-option", type: "button", role: "radio", "aria-checked": String(draft.bannerStyle === st && !!draft.banner), "aria-label": W.Banners.LABELS[st],
+            style: `background-image:url(${W.Banners.render(st, draft.bg, accent)})`, onclick: () => pickStyle(st) }, h("span", {}, W.Banners.LABELS[st])))),
+        h("div", { class: "btn-row", style: "margin-top:12px" },
+          shot ? h("button", { class: "btn btn--secondary btn--small", type: "button", onclick: async () => { await cropInto("banner"); draft.bannerStyle = null; } }, shot.bannerRect ? "Adjust crop" : "Crop from screenshot") : null,
+          h("button", { class: "btn btn--secondary btn--small", type: "button", onclick: async () => { await newImage("banner"); draft.bannerStyle = null; } }, "Use your own image")),
+        h("p", { class: "note" }, "Banners follow your card colors. Pick None for a cleaner card.")
       );
     }
     if (zone === "fields") {
@@ -587,19 +663,24 @@
         null
       );
     }
+    // Changing the card color also recolors a generated banner
+    const setBg = (c) => {
+      draft.bg = c;
+      if (draft.bannerStyle) draft.banner = W.Banners.render(draft.bannerStyle, c, draft.accent || TEMPLATES.find((t) => t.name === draft.template)?.accent);
+    };
     if (zone === "bg") {
       const swatches = (list, label) => list?.length ? h("div", { style: "margin-bottom:16px" }, h("div", { class: "swatch-label" }, label),
         h("div", { class: "swatches" }, list.map((c) => h("button", { class: "swatch", type: "button", role: "radio", "aria-checked": String(c.toLowerCase() === draft.bg.toLowerCase()), "aria-label": c, style: `background:${c}`,
-          onclick: () => { draft.bg = c; paint(); paintTool(); } })))) : null;
+          onclick: () => { setBg(c); paint(); paintTool(); } })))) : null;
       return tool("Background",
         swatches(draft.suggested, "From your screenshot"),
         h("div", { style: "margin-bottom:16px" },
           h("div", { class: "swatch-label" }, "Colors"),
           h("div", { class: "swatches" },
             PALETTE.map((c) => h("button", { class: "swatch", type: "button", role: "radio", "aria-checked": String(c.toLowerCase() === draft.bg.toLowerCase()), "aria-label": c, style: `background:${c}`,
-              onclick: () => { draft.bg = c; paint(); paintTool(); } })),
+              onclick: () => { setBg(c); paint(); paintTool(); } })),
             h("label", { class: "swatch swatch--custom", "aria-label": "Custom color" },
-              h("input", { type: "color", value: draft.bg, oninput: (e) => { draft.bg = e.target.value; paint(); } })))),
+              h("input", { type: "color", value: draft.bg, oninput: (e) => { draft.bg = e.target.value; paint(); }, onchange: (e) => { setBg(e.target.value); paint(); } })))),
         h("div", { class: "swatch-label" }, "Text color"),
         seg([["auto", "Automatic"], ["#FFFFFF", "White"], ["#111111", "Black"]], draft.fg, (v) => { draft.fg = v; paint(); paintTool(); }, "Text color")
       );
@@ -741,7 +822,7 @@
       ],
       serial_number: c.id,
     };
-    if (c.showName || !c.logo) args.logo_text = c.name || "";
+    if (brandMode(c) !== "logo" || !c.logo) args.logo_text = c.name || "";
     if (c.code && c.format !== "none") { args.barcode_message = c.code; args.barcode_format = WALLET_FORMAT[c.format] || "Code128"; }
     if (c.expires) args.expiration_date = new Date(c.expires + "T23:59:59").toISOString();
     if (c.logo) {
