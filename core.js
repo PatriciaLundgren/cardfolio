@@ -138,17 +138,32 @@
         if (y > 0) stack.push(p - w);
         if (y < h - 1) stack.push(p + w);
       }
-      for (let p = 0; p < w * h; p++) {
-        const i = p * 4;
-        if (seen[p]) { d[i + 3] = 0; continue; }
-        // Soften edge pixels that touch the removed area
+      // Clean the edge: peel off the soft halo of background-tinted pixels,
+      // then un-mix the background color from what's left so no pale rim remains.
+      const touches = (p) => {
         const x = p % w, y = (p / w) | 0;
-        const edge = (x > 0 && seen[p - 1]) || (x < w - 1 && seen[p + 1]) || (y > 0 && seen[p - w]) || (y < h - 1 && seen[p + w]);
-        if (edge) {
-          const k = Math.min(1, Math.max(0, (dist(i) - thr) / (thr + 1)));
-          d[i + 3] = Math.round(d[i + 3] * (0.35 + 0.65 * k));
+        return (x > 0 && seen[p - 1] === 1) || (x < w - 1 && seen[p + 1] === 1) || (y > 0 && seen[p - w] === 1) || (y < h - 1 && seen[p + w] === 1);
+      };
+      const soft = thr * 3.5;
+      for (let ring = 0; ring < 4; ring++) {
+        const edge = [];
+        for (let p = 0; p < w * h; p++) if (!seen[p] && touches(p)) edge.push(p);
+        let peeled = 0;
+        for (const p of edge) {
+          const i = p * 4;
+          const a = Math.min(1, Math.max(0, (dist(i) - thr) / (soft - thr)));
+          if (a < 0.15) { seen[p] = 1; peeled++; continue; }
+          if (a < 1) {
+            d[i] = Math.max(0, Math.min(255, (d[i] - (1 - a) * br) / a));
+            d[i + 1] = Math.max(0, Math.min(255, (d[i + 1] - (1 - a) * bg) / a));
+            d[i + 2] = Math.max(0, Math.min(255, (d[i + 2] - (1 - a) * bb) / a));
+            d[i + 3] = Math.round(d[i + 3] * a);
+          }
+          seen[p] = 2; // edge pixel, done
         }
+        if (!peeled) break;
       }
+      for (let p = 0; p < w * h; p++) if (seen[p] === 1) d[p * 4 + 3] = 0;
       ctx.putImageData(img, 0, 0);
       return c;
     },
@@ -301,14 +316,14 @@
 
   // ---------- Barcodes ----------
   const FORMATS = {
-    qr: { label: "QR code", bcid: "qrcode", wallet: "PKBarcodeFormatQR", square: true },
-    code128: { label: "Code 128", bcid: "code128", wallet: "PKBarcodeFormatCode128" },
-    ean13: { label: "EAN-13", bcid: "ean13", wallet: "PKBarcodeFormatCode128", walletNote: true },
-    ean8: { label: "EAN-8", bcid: "ean8", wallet: "PKBarcodeFormatCode128", walletNote: true },
-    upca: { label: "UPC-A", bcid: "upca", wallet: "PKBarcodeFormatCode128", walletNote: true },
-    code39: { label: "Code 39", bcid: "code39", wallet: "PKBarcodeFormatCode128", walletNote: true },
-    pdf417: { label: "PDF417", bcid: "pdf417", wallet: "PKBarcodeFormatPDF417" },
-    aztec: { label: "Aztec", bcid: "azteccode", wallet: "PKBarcodeFormatAztec", square: true },
+    qr: { label: "QR code", bcid: "qrcode", square: true },
+    code128: { label: "Code 128", bcid: "code128" },
+    ean13: { label: "EAN-13", bcid: "ean13" },
+    ean8: { label: "EAN-8", bcid: "ean8" },
+    upca: { label: "UPC-A", bcid: "upca" },
+    code39: { label: "Code 39", bcid: "code39" },
+    pdf417: { label: "PDF417", bcid: "pdf417" },
+    aztec: { label: "Aztec", bcid: "azteccode", square: true },
   };
   const SCAN_MAP = {
     QR_CODE: "qr", CODE_128: "code128", EAN_13: "ean13", EAN_8: "ean8", UPC_A: "upca",

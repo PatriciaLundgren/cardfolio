@@ -14,9 +14,9 @@ To update: upload the changed files and bump `cardfolio-v1` in `sw.js`.
 
 Lilac (`#B79DE8`) on aubergine (`#0F0B14`), with plum, mint, peach, cream and coral from the logo. Open `brand.html` for the full guide. Design tokens live at the top of `styles.css`.
 
-## Apple Wallet
+## Apple Wallet (free)
 
-Needs an Apple Developer account. In the app: Settings > Wallet signing, and follow the four steps. The signing key stays on your phone. Back it up from the same screen.
+On iOS 27, open a card and tap Add to Apple Wallet. Save the card image, then in Wallet tap +, Create a Pass and choose the image. Wallet builds the pass itself, so no developer account is needed.
 
 ## Files
 
@@ -24,7 +24,6 @@ Needs an Apple Developer account. In the app: Settings > Wallet signing, and fol
 - `styles.css`: design system (tokens at the top) and layout
 - `app.js`: screens and flows
 - `core.js`: storage, image tools (crop, background removal, colors) and barcodes
-- `pkpass.js`: Apple Wallet signing and pass builder
 - `templates.js`: store list, easy to extend
 - `sw.js`: offline support
 - `logo.svg`, `mark.svg`: app icon and mark

@@ -1,7 +1,7 @@
 /* Cardfolio: personal member card wallet. UI and flows. */
 (() => {
   "use strict";
-  const { Store, Color, Img, Barcode, Wallet } = window.W;
+  const { Store, Color, Img, Barcode } = window.W;
 
   // ---------- Tiny DOM helper ----------
   const $ = (s, r = document) => r.querySelector(s);
@@ -205,13 +205,13 @@
         listWrap.append(h("div", { class: "section-label" }, g),
           h("div", { class: "group" }, groups[g].map((t) =>
             h("button", { class: "row store-row", type: "button", onclick: () => choose(t) },
-              h("span", { class: "monogram" }, t.name.slice(0, 1)),
+              h("span", { class: "monogram", style: `background:${t.bg || "var(--surface-2)"};color:${t.fg || "var(--text-1)"}` }, t.name.slice(0, 1)),
               h("span", { class: "row-main row-title" }, t.name), chevron()))));
       });
     };
     const choose = (t) => {
       close("sheet-stores");
-      const card = blankCard({ name: t.name, numberLabel: t.numberLabel || "Member number" });
+      const card = blankCard({ name: t.name, numberLabel: t.numberLabel || "Member number", bg: t.bg || "#1C1C1E", fg: t.fg || "auto" });
       askScreenshot(card);
     };
     sheet("sheet-stores", {
@@ -265,7 +265,7 @@
     if (found.logo) await applyLogoCrop(card, found.logo, found.color);
     else {
       const r = await cropFrom("logo", { hint: "We couldn’t spot the logo. Drag a box around it." });
-      if (r) await applyLogoCrop(card, r);
+      if (r) await applyLogoCrop(card, r, "auto");
     }
     if (found.banner) applyBannerCrop(card, found.banner);
 
@@ -275,12 +275,16 @@
     openEditor(card, { isNew: true, tab: "preview" });
   }
 
-  async function applyLogoCrop(card, rect, color) {
+  // setBg: a color to use as the card background, "auto" to take it from
+  // around the logo, or nothing to keep the background you already picked.
+  async function applyLogoCrop(card, rect, setBg) {
     const c = Img.crop(shot.canvas, rect, 900);
     shot.logoRect = rect;
     card.logoSrc = c.toDataURL("image/png");
-    card.bg = color || Img.borderColor(c);
-    if (!card.suggested?.includes(card.bg)) card.suggested = [card.bg, ...(card.suggested || [])].slice(0, 6);
+    if (setBg) {
+      card.bg = setBg === "auto" ? Img.borderColor(c) : setBg;
+      if (!card.suggested?.includes(card.bg)) card.suggested = [card.bg, ...(card.suggested || [])].slice(0, 6);
+    }
     card.logo = await Img.processLogo(card.logoSrc, { removeBg: card.logoRemoveBg, tolerance: card.logoTolerance, tint: card.logoTint });
   }
   function applyBannerCrop(card, rect) {
@@ -523,7 +527,7 @@
           h("select", { class: "input-solo", "aria-label": "Barcode format", onchange: (e) => { draft.format = e.target.value; paint(); paintTool(); } },
             Object.entries(Barcode.FORMATS).map(([k, v]) => h("option", { value: k, selected: k === draft.format }, v.label)))),
         h("div", { class: "tool-row", style: "margin-top:8px" }, h("label", {}, "Show number under barcode"), sw(draft.showCode, (v) => { draft.showCode = v; paint(); }, "Show number under barcode")),
-        f?.walletNote ? h("p", { class: "note" }, `Apple Wallet doesn’t support ${f.label}, so it will show as Code 128 there. Most store scanners read it fine.`) : null
+        null
       );
     }
     if (zone === "bg") {
@@ -610,8 +614,7 @@
     if (!c) return;
     c.used = Date.now(); saveCards();
 
-    const walletBtn = h("button", { class: "btn btn--primary btn--block", type: "button", onclick: () => addToWallet(c, walletBtn, shareHolder) }, icon(ICONS.wallet), "Add to Apple Wallet");
-    const shareHolder = h("div");
+    const walletBtn = h("button", { class: "btn btn--primary btn--block", type: "button", onclick: () => openWallet(c) }, icon(ICONS.wallet), "Add to Apple Wallet");
     const d = sheet("sheet-detail", {
       left: textBtn("Done", () => close("sheet-detail")),
       title: c.name,
@@ -619,7 +622,7 @@
       body: h("div", {},
         renderPass(c),
         h("p", { class: "detail-hint" }, "Turn up the brightness if the scanner struggles."),
-        h("div", { class: "detail-actions" }, walletBtn, shareHolder,
+        h("div", { class: "detail-actions" }, walletBtn,
           c.code ? h("button", { class: "btn btn--secondary btn--block", type: "button", onclick: async () => {
             try { await navigator.clipboard.writeText(c.number || c.code); toast("Number copied"); } catch { toast("Couldn’t copy on this device"); }
           } }, "Copy number") : null),
@@ -636,34 +639,89 @@
     d.addEventListener("close", () => awake(false), { once: true });
   }
 
-  async function addToWallet(c, btn, shareHolder) {
-    const st = await Wallet.Signer.status();
-    if (!st.ready) { openSigning(true); return; }
-    const label = btn.innerHTML;
-    btn.disabled = true; btn.innerHTML = ""; btn.append(h("span", { class: "spinner" }), "Preparing pass");
-    try {
-      const blob = await Wallet.build({ ...c, fg: ink(c) });
-      const file = new File([blob], `${(c.name || "card").replace(/[^\w-]+/g, "-")}.pkpass`, { type: "application/vnd.apple.pkpass" });
-      const url = URL.createObjectURL(file);
-      window.location.href = url; // Safari opens the Add to Wallet screen
-      shareHolder.innerHTML = "";
-      if (navigator.canShare?.({ files: [file] })) {
-        shareHolder.append(h("button", { class: "btn btn--secondary btn--block", type: "button", onclick: () => navigator.share({ files: [file] }).catch(() => {}) }, "Nothing happened? Share the pass"));
-      } else {
-        shareHolder.append(h("button", { class: "btn btn--secondary btn--block", type: "button", onclick: () => download(file, file.name) }, "Nothing happened? Download the pass"));
-      }
-    } catch (e) {
-      toast(e.message || "Couldn’t create the pass", 3500);
-    } finally {
-      btn.disabled = false; btn.innerHTML = label;
+  // ---------- Apple Wallet, the free way ----------
+  // iOS 27's Wallet can create a pass itself (Wallet > + > Create a Pass).
+  // Cardfolio hands it a clean image of the card to scan, plus the details to copy.
+  async function cardImage(c) {
+    const W = 1080, H = 1380, fg = ink(c);
+    const cv = Img.canvasOf(W, H), x = cv.getContext("2d");
+    x.fillStyle = c.bg; x.beginPath(); x.roundRect(0, 0, W, H, 64); x.fill();
+    if (c.logo) {
+      const img = await Img.loadURL(c.logo);
+      const s = Math.min(560 / img.naturalWidth, 150 / img.naturalHeight);
+      x.drawImage(img, 80, 90, img.naturalWidth * s, img.naturalHeight * s);
+    } else {
+      x.fillStyle = fg; x.font = "600 72px 'Instrument Sans', system-ui, sans-serif";
+      x.fillText(c.name || "Card", 80, 170);
     }
+    if (c.banner) {
+      const img = await Img.loadURL(c.banner);
+      const bh = W * 123 / 375, s = Math.max(W / img.naturalWidth, bh / img.naturalHeight);
+      x.save(); x.beginPath(); x.rect(0, 280, W, bh); x.clip();
+      x.drawImage(img, (W - img.naturalWidth * s) / 2, 280 + (bh - img.naturalHeight * s) / 2, img.naturalWidth * s, img.naturalHeight * s);
+      x.restore();
+    }
+    if (c.code && c.format !== "none") {
+      const bc = await Barcode.canvas(c.format, c.code, 6).catch(() => null);
+      if (bc) {
+        const maxW = W - 240, maxH = Barcode.FORMATS[c.format]?.square ? 480 : 300;
+        const s = Math.min(maxW / bc.width, maxH / bc.height);
+        const bw = bc.width * s, bhh = bc.height * s, pad = 48;
+        const px = (W - bw) / 2 - pad, py = H - bhh - pad * 2 - 150;
+        x.fillStyle = "#FFFFFF"; x.beginPath(); x.roundRect(px, py, bw + pad * 2, bhh + pad * 2 + 70, 32); x.fill();
+        x.imageSmoothingEnabled = false; x.drawImage(bc, px + pad, py + pad, bw, bhh);
+        x.fillStyle = "#111111"; x.font = "500 40px ui-monospace, Menlo, monospace"; x.textAlign = "center";
+        x.fillText(c.code, W / 2, py + pad + bhh + 58); x.textAlign = "left";
+      }
+    }
+    return new Promise((r) => cv.toBlob(r, "image/png"));
+  }
+
+  async function openWallet(c) {
+    const copy = async (v, what) => { try { await navigator.clipboard.writeText(v); toast(what + " copied"); } catch { toast("Couldn’t copy on this device"); } };
+    const valueRow = (label, value) => value ? h("button", { class: "row", type: "button", onclick: () => copy(value, label) },
+      h("span", { class: "row-main" }, h("div", { class: "row-sub", style: "margin:0" }, label), h("div", { class: "row-title" }, value)),
+      h("span", { class: "row-value", style: "color:var(--accent)" }, "Copy")) : null;
+    const step = (n, title, text) => h("div", { class: "step" }, h("span", { class: "step-dot" }, String(n)),
+      h("div", { class: "step-body" }, h("div", { class: "row-title", style: "font-weight:600" }, title), text ? h("p", {}, text) : null));
+    const saveBtn = h("button", { class: "btn btn--primary btn--block", type: "button", onclick: async () => {
+      const blob = await cardImage(c);
+      const file = new File([blob], `${(c.name || "card").replace(/[^\w-]+/g, "-")}-card.png`, { type: "image/png" });
+      if (navigator.canShare?.({ files: [file] })) navigator.share({ files: [file] }).catch(() => {});
+      else download(file, file.name);
+    } }, "Save card image");
+    const preview = h("img", { alt: "Card image for Wallet", style: "width:100%;border-radius:16px;display:block" });
+    cardImage(c).then((b) => { preview.src = URL.createObjectURL(b); });
+
+    sheet("sheet-wallet", {
+      left: textBtn("Back", () => close("sheet-wallet")),
+      title: "Add to Apple Wallet",
+      body: h("div", {},
+        h("p", { class: "sheet-lede" }, "Apple Wallet can make this pass for you, free, on iOS 27. Save the card image, then let Wallet scan it."),
+        h("div", { style: "max-width:240px;margin:0 auto 20px" }, preview),
+        saveBtn,
+        h("p", { class: "section-note", style: "text-align:center" }, "In the share sheet, tap Save Image to put it in Photos."),
+        h("div", { class: "section-label" }, "Then in Wallet"),
+        h("div", { class: "group" },
+          step(1, "Open Wallet and tap +", null),
+          step(2, "Tap Create a Pass", null),
+          step(3, "Tap the photo icon and choose the card image", "Wallet reads the barcode and name. Check the details, pick a color and save.")),
+        h("div", { class: "section-label" }, "Or create it manually"),
+        h("p", { class: "section-note", style: "margin-top:4px" }, "If your iPhone doesn’t offer the scan, choose Create Pass Manually and copy these in."),
+        h("div", { class: "group", style: "margin-top:8px" },
+          valueRow("Name", c.name),
+          valueRow("Barcode", c.code),
+          valueRow(c.numberLabel || "Member number", c.number),
+          valueRow("Background color", c.bg.toUpperCase()),
+          c.code ? h("div", { class: "row" }, h("span", { class: "row-main" }, h("div", { class: "row-sub", style: "margin:0" }, "Barcode type"), h("div", { class: "row-title" }, Barcode.FORMATS[c.format]?.label || "Code 128"))) : null)
+      ),
+    });
   }
 
   // =========================================================
   // Settings
   // =========================================================
   async function openSettings() {
-    const st = await Wallet.Signer.status();
     const row = (title, sub, onclick, right) => h(onclick ? "button" : "div", { class: "row", type: onclick ? "button" : null, onclick },
       h("span", { class: "row-main" }, h("div", { class: "row-title" }, title), sub ? h("div", { class: "row-sub" }, sub) : null), right || (onclick ? chevron() : null));
     sheet("sheet-settings", {
@@ -671,8 +729,6 @@
       title: "Settings",
       right: textBtn("Done", () => close("sheet-settings"), true),
       body: h("div", {},
-        h("div", { class: "section-label" }, "Apple Wallet"),
-        h("div", { class: "group" }, row("Wallet signing", st.ready ? `Ready. ${st.passTypeId}` : "Not set up yet", () => openSigning(false))),
         h("div", { class: "section-label" }, "Security"),
         h("div", { class: "group" }, row("PIN lock", settings.pinHash ? "Asks for your PIN when the app opens" : "Off", null,
           sw(!!settings.pinHash, async (v) => {
@@ -696,69 +752,6 @@
             } catch { toast("That file isn’t a backup from this app"); }
           })),
         h("p", { class: "section-note" }, "Your cards are stored only on this phone, in this browser. Nothing is uploaded to GitHub. Export a backup now and then.")
-      ),
-    });
-  }
-
-  async function openSigning(fromCard) {
-    const st = await Wallet.Signer.status();
-    const step = (n, done, title, text, action) => h("div", { class: "step" + (done ? " is-done" : "") },
-      h("span", { class: "step-dot" }, done ? "✓" : String(n)),
-      h("div", { class: "step-body" }, h("div", { class: "row-title", style: "font-weight:600" }, title), h("p", { html: text }), action || null));
-    const busy = async (btn, fn) => {
-      const t = btn.textContent; btn.disabled = true; btn.textContent = "Working…";
-      try { await fn(); } catch (e) { toast(e.message || "Something went wrong", 3500); }
-      finally { btn.disabled = false; btn.textContent = t; }
-    };
-    const actionBtn = (label, fn) => { const b = h("button", { class: "btn btn--secondary btn--small", type: "button" }, label); b.onclick = () => busy(b, fn); return b; };
-
-    sheet("sheet-signing", {
-      left: textBtn("Back", () => close("sheet-signing")),
-      title: "Wallet signing",
-      body: h("div", {},
-        h("p", { class: "sheet-lede" }, fromCard && !st.ready
-          ? "One-time setup before your first card. Apple only accepts cards signed with a certificate from an Apple Developer account (99 USD a year)."
-          : "Apple only accepts cards signed with a certificate from an Apple Developer account (99 USD a year). Everything below happens on this phone."),
-        h("div", { class: "group" },
-          step(1, st.hasKey, "Create a signing request", "Makes a private key that stays on this phone, and a request file for Apple.",
-            actionBtn(st.hasKey ? "Create a new request" : "Create request", async () => {
-              if (st.hasCert && !confirm("This replaces your current key and certificate. Continue?")) return;
-              download(await Wallet.Signer.createRequest(), "wallet.certSigningRequest");
-              toast("Request saved to Files"); openSigning(fromCard);
-            })),
-          step(2, st.hasCert, "Get a certificate from Apple",
-            `In your Apple Developer account, <a href="https://developer.apple.com/account/resources/identifiers/list/passTypeId" target="_blank" rel="noopener">register a Pass Type ID</a>, for example pass.se.yourname.cards. Then <a href="https://developer.apple.com/account/resources/certificates/add" target="_blank" rel="noopener">create a Pass Type ID certificate</a>, upload the request file and download pass.cer.`),
-          step(3, st.hasCert, "Import your certificate", st.hasCert ? `Linked to ${st.passTypeId}, team ${st.teamId}.` : "Choose the pass.cer file you downloaded.",
-            actionBtn(st.hasCert ? "Replace certificate" : "Import pass.cer", async () => {
-              const f = await pickFile(".cer,.pem,.crt"); if (!f) return;
-              await Wallet.Signer.importCert(await f.arrayBuffer()); toast("Certificate imported"); openSigning(fromCard);
-            })),
-          step(4, st.hasWWDR, "Import Apple’s intermediate certificate",
-            `Download “Worldwide Developer Relations - G4” from <a href="https://www.apple.com/certificateauthority/" target="_blank" rel="noopener">Apple’s certificate page</a>, then import it here.`,
-            actionBtn(st.hasWWDR ? "Replace" : "Import certificate", async () => {
-              const f = await pickFile(".cer,.pem,.crt"); if (!f) return;
-              await Wallet.Signer.importWWDR(await f.arrayBuffer()); toast("Apple certificate imported"); openSigning(fromCard);
-            }))
-        ),
-        st.ready ? h("p", { class: "section-note" }, "All set. Open a card and tap Add to Apple Wallet.") : null,
-        h("div", { class: "section-label" }, "Other options"),
-        h("div", { class: "group" },
-          h("button", { class: "row", type: "button", onclick: async () => {
-            const f = await pickFile(".p12,.pfx"); if (!f) return;
-            const pw = prompt("Password for the .p12 file") ?? "";
-            try { await Wallet.Signer.importP12(await f.arrayBuffer(), pw); toast("Key and certificate imported"); openSigning(fromCard); }
-            catch (e) { toast(e.message.includes("password") ? "Wrong password" : e.message, 3500); }
-          } }, h("span", { class: "row-main" }, h("div", { class: "row-title" }, "Import a .p12 instead"), h("div", { class: "row-sub" }, "If you already have the key and certificate")), chevron()),
-          st.hasCert ? h("button", { class: "row", type: "button", onclick: async () => {
-            const pw = prompt("Choose a password to protect the backup");
-            if (!pw) return;
-            download(await Wallet.Signer.exportP12(pw), "wallet-signing.p12"); toast("Signing backup saved");
-          } }, h("span", { class: "row-main" }, h("div", { class: "row-title" }, "Back up signing key"), h("div", { class: "row-sub" }, "Saves a password-protected .p12 file")), chevron()) : null,
-          st.hasKey ? h("button", { class: "row", type: "button", onclick: async () => {
-            if (!confirm("Remove your key and certificates from this phone?")) return;
-            await Wallet.Signer.reset(); toast("Signing removed"); openSigning(fromCard);
-          } }, h("span", { class: "row-main row-title", style: "color:var(--danger)" }, "Remove signing setup")) : null
-        )
       ),
     });
   }
