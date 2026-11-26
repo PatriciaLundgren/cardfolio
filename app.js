@@ -27,6 +27,9 @@
     scan: '<path d="M4 8V5h3M20 8V5h-3M4 16v3h3M20 16v3h-3M7 12h10"/>',
     wallet: '<rect x="3" y="6" width="18" height="13" rx="3"/><path d="M3 10h18M16 14.5h2"/>',
     chevron: '<path d="m1 1 6 6-6 6"/>',
+    share: '<path d="M12 3v12M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/>',
+    link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+    image: '<rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="1.8"/><path d="m21 16-5-5-9 9"/>',
   };
   const chevron = () => h("span", { html: `<svg class="row-chevron" viewBox="0 0 8 14"><path d="m1 1 6 6-6 6"/></svg>` }).firstChild;
 
@@ -301,7 +304,7 @@
     return {
       name: t.name, template: t.name, numberLabel: t.numberLabel || "Member number",
       bg: t.bg || "#1C1C1E", fg: t.fg || "auto", accent: t.accent || null,
-      logo, logoSrc: src, logoRemoveBg: false, logoTint: tint, brandMode: logo ? "logo" : "name",
+      logo, logoSrc: src, logoRemoveBg: false, logoTint: tint, brandMode: logo ? "logo" : "name", logoFrom: logo ? t.name : null,
       bannerStyle: style, banner: style ? W.Banners.render(style, t.bg || "#1C1C1E", t.accent) : null,
     };
   }
@@ -627,7 +630,7 @@
   // A ready-made logo file (e.g. a PNG from the store's site): no cropping needed
   async function logoFile(paint, paintTool) {
     const f = await pickImage(); if (!f) return;
-    draft.logo = draft.logoSrc = await cleanLogo(f);
+    draft.logo = draft.logoSrc = await cleanLogo(f); draft.logoFrom = null;
     draft.logoRemoveBg = false; draft.logoTint = "original";
     paint?.(); paintTool?.();
     toast("Logo added");
@@ -671,7 +674,7 @@
           h("button", { class: "btn btn--secondary btn--small", type: "button", onclick: () => openLogoPicker(async (t) => {
             const src = await templateLogo(t);
             const tint = t.logoTint ? autoTint(draft.bg) : "original";
-            draft.logoSrc = src; draft.logoTint = tint; draft.logoRemoveBg = false;
+            draft.logoSrc = src; draft.logoTint = tint; draft.logoRemoveBg = false; draft.logoFrom = t.name;
             draft.logo = tint !== "original" ? await Img.processLogo(src, { removeBg: false, tint }) : src;
             if (!draft.name) draft.name = t.name;
             paint(); paintTool();
@@ -871,7 +874,8 @@
         h("div", { class: "detail-actions" }, walletBtn,
           c.code ? h("button", { class: "btn btn--secondary btn--block", type: "button", onclick: async () => {
             try { await navigator.clipboard.writeText(c.number || c.code); toast("Number copied"); } catch { toast("Couldn’t copy on this device"); }
-          } }, "Copy number") : null),
+          } }, "Copy number") : null,
+          h("button", { class: "btn btn--secondary btn--block", type: "button", onclick: () => openShare(c) }, icon(ICONS.share), "Share")),
         c.notes ? [h("div", { class: "section-label" }, "Notes"), h("div", { class: "group", style: "padding:14px 16px;white-space:pre-wrap" }, c.notes)] : null,
         c.expires ? h("p", { class: "section-note" }, `Expires ${new Date(c.expires + "T00:00").toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" })}`) : null,
         h("button", { class: "btn btn--danger btn--block", type: "button", style: "margin-top:24px", onclick: async () => {
@@ -948,6 +952,103 @@
     } finally {
       btn.disabled = false; btn.innerHTML = label;
     }
+  }
+
+  // ---------- Sharing ----------
+  const fileName = (c, ext) => (c.name || "card").replace(/[^\w-]+/g, "-") + "." + ext;
+  async function shareFile(file, title) {
+    if (navigator.canShare?.({ files: [file] })) { try { await navigator.share({ files: [file], title }); } catch {} }
+    else download(file, file.name);
+  }
+  const b64url = (u8) => { let s = ""; u8.forEach((b) => (s += String.fromCharCode(b))); return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); };
+  const fromB64url = (t) => Uint8Array.from(atob(t.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+  const gzip = async (u8) => new Uint8Array(await new Response(new Blob([u8]).stream().pipeThrough(new CompressionStream("gzip"))).arrayBuffer());
+  const gunzip = async (u8) => new Uint8Array(await new Response(new Blob([u8]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer());
+  async function shrink(url, maxW, maxH, type, q) {
+    if (!url) return null;
+    const img = await Img.loadURL(url);
+    const s = Math.min(1, maxW / img.naturalWidth, maxH / img.naturalHeight);
+    const c = Img.canvasOf(img.naturalWidth * s, img.naturalHeight * s);
+    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+    return c.toDataURL(type, q);
+  }
+
+  // A link that opens Cardfolio with this card ready to save. Template logos and
+  // generated banners are rebuilt on the other phone, so the link stays short.
+  async function cardLink(c) {
+    const keep = ["name", "brandMode", "template", "bannerStyle", "accent", "bg", "fg", "logoTint", "logoFrom", "headerLabel", "headerValue",
+      "memberName", "numberLabel", "number", "code", "format", "showCode", "notes", "expires", "textAlign"];
+    const p = {}; keep.forEach((k) => { if (c[k] != null && c[k] !== "") p[k] = c[k]; });
+    if (!c.logoFrom && c.logo) p.logo = await shrink(c.logo, 360, 120, "image/png");
+    if (!c.bannerStyle && c.banner) p.banner = await shrink(c.banner, 600, 200, "image/jpeg", 0.72);
+    const packed = b64url(await gzip(new TextEncoder().encode(JSON.stringify(p))));
+    return location.origin + location.pathname + "#add=" + packed;
+  }
+  async function cardFromLink(packed) {
+    const p = JSON.parse(new TextDecoder().decode(await gunzip(fromB64url(packed))));
+    const card = blankCard(p);
+    const t = p.logoFrom && TEMPLATES.find((x) => x.name === p.logoFrom);
+    if (t) {
+      const src = await templateLogo(t);
+      card.logoSrc = src;
+      card.logo = src && p.logoTint && p.logoTint !== "original" ? await Img.processLogo(src, { removeBg: false, tint: p.logoTint }) : src;
+    } else if (p.logo) { card.logoSrc = p.logo; card.logoFrom = null; }
+    if (p.bannerStyle) card.banner = W.Banners.render(p.bannerStyle, card.bg, p.accent || TEMPLATES.find((x) => x.name === p.template)?.accent);
+    return card;
+  }
+  async function checkIncoming() {
+    const m = location.hash.match(/^#add=(.+)$/);
+    if (!m) return;
+    history.replaceState(null, "", location.pathname + location.search);
+    let card;
+    try { card = await cardFromLink(m[1]); } catch { toast("That card link didn’t work. Ask for a new one."); return; }
+    sheet("sheet-detail", {
+      left: textBtn("Not now", () => close("sheet-detail")),
+      title: "Card shared with you",
+      right: h("span"),
+      body: h("div", {},
+        renderPass(card),
+        h("p", { class: "detail-hint" }, "Someone shared this " + (card.name || "card") + " card with you."),
+        h("div", { class: "detail-actions" },
+          h("button", { class: "btn btn--primary btn--block", type: "button", onclick: async () => {
+            cards.push(card); await saveCards(); renderHome(); close("sheet-detail"); toast("Card added"); openDetail(card.id);
+          } }, "Add to my cards"))),
+    });
+  }
+
+  async function openShare(c) {
+    const option = (cls, ic, title, sub, onclick) => h("button", { class: "option " + cls, type: "button", onclick },
+      h("span", { class: "option-icon" }, icon(ic)),
+      h("span", { class: "row-main" }, h("div", { class: "row-title", style: "font-weight:600" }, title), h("div", { class: "row-sub" }, sub)));
+    const busy = (btn, fn) => async () => {
+      const sub = btn.querySelector(".row-sub"), was = sub.textContent;
+      sub.textContent = "Preparing…"; btn.disabled = true;
+      try { await fn(); } catch (e) { toast(e.message || "Couldn’t share right now", 4000); }
+      finally { sub.textContent = was; btn.disabled = false; }
+    };
+    const linkBtn = option("", ICONS.link, "Send as a link", "Opens in Cardfolio, where they can save it", null);
+    linkBtn.onclick = busy(linkBtn, async () => {
+      const url = await cardLink(c);
+      if (navigator.share) { try { await navigator.share({ title: c.name + " card", url }); } catch {} }
+      else { await navigator.clipboard.writeText(url); toast("Link copied"); }
+    });
+    const passBtn = option("", ICONS.wallet, "Send as an Apple Wallet pass", "They tap it to add it to their Wallet", null);
+    passBtn.onclick = busy(passBtn, async () => {
+      if (!relayUrl()) throw new Error("Wallet passes need the signing relay");
+      const res = await fetch(relayUrl() + "?file=1", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(await passArgs(c)) });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || "Couldn’t make the pass right now"); }
+      await shareFile(new File([await res.blob()], fileName(c, "pkpass"), { type: "application/vnd.apple.pkpass" }), c.name);
+    });
+    const imgBtn = option("", ICONS.image, "Save or send as an image", "A picture of the card with its barcode", null);
+    imgBtn.onclick = busy(imgBtn, async () => shareFile(new File([await cardImage(c)], fileName(c, "png"), { type: "image/png" }), c.name));
+    sheet("sheet-share", {
+      left: textBtn("Back", () => close("sheet-share")),
+      title: "Share card",
+      body: h("div", {},
+        renderPass(c),
+        h("div", { style: "margin-top:20px" }, linkBtn, passBtn, imgBtn),
+        h("p", { class: "section-note" }, "Whoever you share with gets your barcode and member number, so they can use the card as you.")),
+    });
   }
 
   // ---------- Apple Wallet, the built-in way (fallback) ----------
@@ -1108,7 +1209,7 @@
     $("#lock").hidden = false;
     if (mode === "unlock") $("#home").hidden = true;
   }
-  function hideLock() { $("#lock").hidden = true; $("#home").hidden = false; }
+  function hideLock() { $("#lock").hidden = true; $("#home").hidden = false; checkIncoming(); }
   let hiddenAt = 0;
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) { hiddenAt = Date.now(); return; }
@@ -1147,7 +1248,8 @@
     $("#open-settings").onclick = openSettings;
     document.querySelectorAll("dialog").forEach((d) => d.addEventListener("cancel", (e) => { if (d.id === "sheet-camera" || d.id === "sheet-crop") e.preventDefault(); }));
     renderHome();
-    if (settings.pinHash) showLock("unlock"); else $("#home").hidden = false;
+    if (settings.pinHash) showLock("unlock"); else { $("#home").hidden = false; checkIncoming(); }
+    window.addEventListener("hashchange", () => { if ($("#lock").hidden) checkIncoming(); });
     if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
   }
   start();
