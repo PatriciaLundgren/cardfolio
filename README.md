@@ -22,6 +22,10 @@ Limits: about 30 passes a day, while the service is free in beta. The card's tex
 
 If the relay isn't set up, Add to Apple Wallet falls back to a guide for Wallet's own Create a Pass (iOS 27).
 
+## Logos
+
+The files in `logos/` are example logos used only to recognise and style cards in this personal, non-commercial hobby app. All logos and brand names are trademarks of their respective owners. No rights to them are claimed, and the project is not affiliated with or endorsed by any of these companies.
+
 ## Files
 
 - `index.html`: app shell
@@ -33,3 +37,4 @@ If the relay isn't set up, Add to Apple Wallet falls back to a guide for Wallet'
 - `worker/worker.js`: the signing relay (deploy on Cloudflare Workers, free plan)
 - `logo.svg`, `mark.svg`: app icon and mark
 - `brand.html`: brand guide
+- `logos/`: example store logos (trademarks of their owners)
