@@ -42,6 +42,20 @@
   // ---------- Data ----------
   let cards = [];
   let settings = { pinHash: null };
+  // Logos you add for stores. Kept only on this phone, never in the GitHub repo.
+  let storeLogos = {};
+  const saveStoreLogos = () => Store.set("storeLogos", storeLogos);
+
+  // Turn any logo image into a clean, trimmed PNG: keep real transparency,
+  // otherwise remove the flat background around it.
+  async function cleanLogo(file) {
+    let c = await Img.fromFile(file, 900);
+    const d = c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
+    let transparent = false;
+    for (let i = 3; i < d.length; i += 16) if (d[i] < 250) { transparent = true; break; }
+    if (!transparent) c = Img.removeBackground(c, 20);
+    return Img.trim(c).toDataURL("image/png");
+  }
   const saveCards = () => Store.set("cards", cards).catch(() => toast("Couldn’t save. Storage may be full."));
   const saveSettings = () => Store.set("settings", settings);
 
@@ -205,13 +219,17 @@
         listWrap.append(h("div", { class: "section-label" }, g),
           h("div", { class: "group" }, groups[g].map((t) =>
             h("button", { class: "row store-row", type: "button", onclick: () => choose(t) },
-              h("span", { class: "monogram", style: `background:${t.bg || "var(--surface-2)"};color:${t.fg || "var(--text-1)"}` }, t.name.slice(0, 1)),
+              storeLogos[t.name]
+                ? h("span", { class: "monogram", style: `background:${t.bg || "var(--surface-2)"}` }, h("img", { src: storeLogos[t.name], alt: "", class: "monogram-logo" }))
+                : h("span", { class: "monogram", style: `background:${t.bg || "var(--surface-2)"};color:${t.fg || "var(--text-1)"}` }, t.name.slice(0, 1)),
               h("span", { class: "row-main row-title" }, t.name), chevron()))));
       });
     };
     const choose = (t) => {
       close("sheet-stores");
-      const card = blankCard({ name: t.name, numberLabel: t.numberLabel || "Member number", bg: t.bg || "#1C1C1E", fg: t.fg || "auto" });
+      const logo = storeLogos[t.name];
+      const card = blankCard({ name: t.name, numberLabel: t.numberLabel || "Member number", bg: t.bg || "#1C1C1E", fg: t.fg || "auto",
+        ...(logo ? { logo, logoSrc: logo, logoRemoveBg: false } : {}) });
       askScreenshot(card);
     };
     sheet("sheet-stores", {
@@ -399,7 +417,7 @@
 
   function openEditor(card, { isNew = false, tab = "preview", zone = null } = {}) {
     draft = JSON.parse(JSON.stringify(card));
-    edState = { isNew, tab, zone, touched: false };
+    edState = { isNew, tab, zone, touched: false, open: new Set(), focus: null };
     if (!isNew) shot = null;
     renderEditor();
   }
@@ -444,6 +462,32 @@
   const seg = (options, value, onpick, label) => h("div", { class: "seg seg--full", role: "group", "aria-label": label },
     options.map(([v, l]) => h("button", { type: "button", "aria-pressed": String(v === value), onclick: () => onpick(v) }, l)));
 
+  // ----- Optional fields: hidden behind "Add …" until you need them -----
+  // A field shows when it has a value or you just tapped its Add button.
+  const OPTIONAL = [
+    { key: "memberName", add: "Add your name", has: () => draft.memberName, clear: () => { draft.memberName = ""; } },
+    { key: "number", add: "Add member number", has: () => draft.number, clear: () => { draft.number = ""; draft.numberLabel = "Member number"; } },
+    { key: "header", add: "Add top right info", has: () => draft.headerValue || draft.headerLabel, clear: () => { draft.headerLabel = ""; draft.headerValue = ""; } },
+    { key: "notes", add: "Add notes", has: () => draft.notes, clear: () => { draft.notes = ""; }, detailsOnly: true },
+    { key: "expires", add: "Add expiry date", has: () => draft.expires, clear: () => { draft.expires = ""; }, detailsOnly: true },
+  ];
+  const isOpen = (o) => !!o.has() || edState.open.has(o.key);
+  function optionalFields(render, { detailsOnly = true, onChange } = {}) {
+    const list = OPTIONAL.filter((o) => detailsOnly || !o.detailsOnly);
+    const shown = list.filter(isOpen), hidden = list.filter((o) => !isOpen(o));
+    const removeBtn = (o) => h("button", { class: "field-remove", type: "button", "aria-label": "Remove", onclick: (e) => {
+      e.preventDefault(); o.clear(); edState.open.delete(o.key); onChange?.(); renderEditor(); } }, "Remove");
+    return [
+      shown.length ? h("div", { class: "group" }, shown.map((o) => render(o.key, removeBtn(o)))) : null,
+      hidden.length ? h("div", { class: "add-chips" }, hidden.map((o) => h("button", { class: "add-chip", type: "button", onclick: () => {
+        edState.open.add(o.key); edState.focus = o.key; renderEditor(); } }, "+ " + o.add.replace(/^Add (\w)/, (m, c) => c.toUpperCase())))) : null,
+    ];
+  }
+  function focusPending() {
+    const k = edState.focus; if (!k) return; edState.focus = null;
+    setTimeout(() => $(`#sheet-editor [data-opt="${k}"] input, #sheet-editor [data-opt="${k}"] textarea`)?.focus(), 60);
+  }
+
   function toolFor(zone, paint, paintTool) {
     const tool = (title, ...content) => h("div", { class: "tool" }, h("div", { class: "tool-title" }, title), ...content);
     const reprocessLogo = async () => {
@@ -486,6 +530,11 @@
         h("div", { class: "tool-row", style: "display:block" },
           h("div", { class: "swatch-label" }, "Store name"),
           h("input", { class: "input-solo", value: draft.name, placeholder: "e.g. Clas Ohlson", oninput: (e) => { draft.name = e.target.value; paint(); } })),
+        draft.logo && draft.name.trim() ? h("div", { class: "tool-row" }, h("label", {}, `Use for all ${draft.name.trim()} cards`),
+          sw(storeLogos[draft.name.trim()] === draft.logo, async (v) => {
+            if (v) storeLogos[draft.name.trim()] = draft.logo; else delete storeLogos[draft.name.trim()];
+            await saveStoreLogos(); toast(v ? "Saved for new " + draft.name.trim() + " cards" : "Store logo removed");
+          }, "Use this logo for all cards from this store")) : null,
         draft.logo ? h("button", { class: "btn btn--danger btn--small", type: "button", style: "padding:0", onclick: () => { draft.logo = draft.logoSrc = null; paint(); paintTool(); } }, "Remove logo") : null
       );
     }
@@ -499,13 +548,9 @@
       );
     }
     if (zone === "fields") {
-      const inp = (key, ph, label) => h("label", { class: "field" }, h("span", { class: "field-label" }, label),
-        h("input", { value: draft[key], placeholder: ph, oninput: (e) => { draft[key] = e.target.value; paint(); } }));
+      focusPending();
       return tool("Text on card",
-        h("div", { class: "group", style: "background:var(--surface-2)" },
-          inp("memberName", "Your name", "Name"),
-          h("div", { class: "field-pair" }, inp("numberLabel", "Member number", "Label"), inp("number", "1234 5678", "Number")),
-          h("div", { class: "field-pair" }, inp("headerLabel", "Level", "Top right label"), inp("headerValue", "Gold", "Top right value"))),
+        ...optionalFields((key, remove) => optionalField(key, remove, paint), { detailsOnly: false }),
         h("p", { class: "note" }, "Notes and expiry date are under Details.")
       );
     }
@@ -550,30 +595,37 @@
     return h("div");
   }
 
-  // ----- Details tab: every field as a form -----
+  // One optional field, with its label row and a Remove button
+  function optionalField(key, remove, onInput) {
+    const inp = (k, label, attrs = {}) => h("label", { class: "field" },
+      h("span", { class: "field-label field-label--row" }, h("span", {}, label), k === attrs.removeOn ? remove : null),
+      h("input", { value: draft[k] || "", oninput: (e) => { draft[k] = e.target.value; onInput?.(); }, ...attrs, removeOn: null }));
+    if (key === "memberName") return h("div", { "data-opt": key }, inp("memberName", "Name on card", { placeholder: "Your name", removeOn: "memberName" }));
+    if (key === "number") return h("div", { class: "field-pair field-pair--wide-first", "data-opt": key },
+      inp("number", "Number", { inputmode: "numeric", placeholder: "1234 5678" }), inp("numberLabel", "Label", { placeholder: "Member number", removeOn: "numberLabel" }));
+    if (key === "header") return h("div", { class: "field-pair", "data-opt": key },
+      inp("headerLabel", "Top right label", { placeholder: "Level" }), inp("headerValue", "Value", { placeholder: "Gold", removeOn: "headerValue" }));
+    if (key === "notes") return h("label", { class: "field", "data-opt": key },
+      h("span", { class: "field-label field-label--row" }, h("span", {}, "Notes on the back"), remove),
+      h("textarea", { placeholder: "Customer service number, PIN hint, anything useful", oninput: (e) => { draft.notes = e.target.value; } }, draft.notes || ""));
+    if (key === "expires") return h("div", { "data-opt": key }, inp("expires", "Expires", { type: "date", removeOn: "expires" }));
+    return null;
+  }
+
+  // ----- Details tab: just the essentials, the rest behind "Add …" -----
   function fieldsView() {
+    focusPending();
     const inp = (key, label, attrs = {}) => h("label", { class: "field" }, h("span", { class: "field-label" }, label),
       h("input", { value: draft[key] || "", oninput: (e) => { draft[key] = e.target.value; }, ...attrs }));
-    const toggleRow = (key, label) => h("div", { class: "row" }, h("span", { class: "row-main row-title" }, label), sw(draft[key], (v) => { draft[key] = v; }, label));
     return h("div", {},
       h("div", { class: "section-label" }, "Card"),
-      h("div", { class: "group" }, inp("name", "Store name", { placeholder: "e.g. Clas Ohlson", id: "f-name" }), toggleRow("showName", "Show name next to logo")),
-      h("div", { class: "section-label" }, "Barcode"),
       h("div", { class: "group" },
+        inp("name", "Store name", { placeholder: "e.g. Clas Ohlson", id: "f-name" }),
         inp("code", "Barcode number or text", { placeholder: "Scan or type it in Design", inputmode: "text" }),
-        h("label", { class: "field" }, h("span", { class: "field-label" }, "Format"),
-          h("select", { onchange: (e) => { draft.format = e.target.value; } }, Object.entries(Barcode.FORMATS).map(([k, v]) => h("option", { value: k, selected: k === draft.format }, v.label)))),
-        toggleRow("showCode", "Show number under barcode")),
-      h("div", { class: "section-label" }, "On the card"),
-      h("div", { class: "group" },
-        inp("memberName", "Name", { placeholder: "Your name" }),
-        h("div", { class: "field-pair" }, inp("numberLabel", "Number label"), inp("number", "Number", { inputmode: "numeric" })),
-        h("div", { class: "field-pair" }, inp("headerLabel", "Top right label", { placeholder: "Level" }), inp("headerValue", "Top right value", { placeholder: "Gold" }))),
-      h("div", { class: "section-label" }, "On the back"),
-      h("div", { class: "group" },
-        h("label", { class: "field" }, h("span", { class: "field-label" }, "Notes"),
-          h("textarea", { placeholder: "Customer service number, PIN hint, anything useful", oninput: (e) => { draft.notes = e.target.value; } }, draft.notes || "")),
-        inp("expires", "Expires", { type: "date" })),
+        h("label", { class: "field" }, h("span", { class: "field-label" }, "Barcode type"),
+          h("select", { onchange: (e) => { draft.format = e.target.value; } }, Object.entries(Barcode.FORMATS).map(([k, v]) => h("option", { value: k, selected: k === draft.format }, v.label))))),
+      h("div", { class: "section-label" }, "More details"),
+      ...optionalFields((key, remove) => optionalField(key, remove)),
       h("p", { class: "section-note" }, "Colors, logo and banner are under Design.")
     );
   }
@@ -614,7 +666,7 @@
     if (!c) return;
     c.used = Date.now(); saveCards();
 
-    const walletBtn = h("button", { class: "btn btn--primary btn--block", type: "button", onclick: () => openWallet(c) }, icon(ICONS.wallet), "Add to Apple Wallet");
+    const walletBtn = h("button", { class: "btn btn--primary btn--block", type: "button", onclick: () => relayUrl() ? signAndAdd(c, walletBtn) : openWallet(c) }, icon(ICONS.wallet), "Add to Apple Wallet");
     const d = sheet("sheet-detail", {
       left: textBtn("Done", () => close("sheet-detail")),
       title: c.name,
@@ -622,6 +674,7 @@
       body: h("div", {},
         renderPass(c),
         h("p", { class: "detail-hint" }, "Turn up the brightness if the scanner struggles."),
+        relayUrl() && c.banner ? h("p", { class: "detail-hint", style: "margin-top:4px" }, "Wallet passes show the logo and colors, but not the banner.") : null,
         h("div", { class: "detail-actions" }, walletBtn,
           c.code ? h("button", { class: "btn btn--secondary btn--block", type: "button", onclick: async () => {
             try { await navigator.clipboard.writeText(c.number || c.code); toast("Number copied"); } catch { toast("Couldn’t copy on this device"); }
@@ -639,7 +692,72 @@
     d.addEventListener("close", () => awake(false), { once: true });
   }
 
-  // ---------- Apple Wallet, the free way ----------
+  // ---------- Apple Wallet, signed for free ----------
+  // Your design goes to a tiny relay (a free Cloudflare Worker, see worker/worker.js),
+  // which asks the free walletmcppass.com service to sign it. Safari then opens
+  // Apple's own "Add to Apple Wallet" screen. Nothing else to do.
+  const SIGNING_RELAY = "";
+  const relayUrl = () => settings.relayUrl || SIGNING_RELAY;
+
+  const WALLET_FORMAT = { qr: "QR", pdf417: "PDF417", aztec: "Aztec" };
+  async function pngB64(c) { return c.toDataURL("image/png").split(",")[1]; }
+  async function fitImage(url, maxW, maxH) {
+    const img = await Img.loadURL(url);
+    const s = Math.min(maxW / img.naturalWidth, maxH / img.naturalHeight, 1);
+    const cv = Img.canvasOf(img.naturalWidth * s, img.naturalHeight * s);
+    const x = cv.getContext("2d"); x.imageSmoothingQuality = "high"; x.drawImage(img, 0, 0, cv.width, cv.height);
+    return cv;
+  }
+  async function passArgs(c) {
+    const fg = ink(c);
+    const args = {
+      style: "storeCard",
+      organization_name: c.name || "Card",
+      description: (c.name || "Member") + " card",
+      background_color: c.bg, foreground_color: fg, label_color: Color.mix(fg, c.bg, 0.35),
+      secondary_fields: [
+        ...(c.memberName ? [{ key: "name", label: "Name", value: c.memberName }] : []),
+        ...(c.number ? [{ key: "number", label: c.numberLabel || "Member number", value: c.number }] : []),
+      ],
+      header_fields: c.headerValue ? [{ key: "header", label: c.headerLabel || "", value: c.headerValue }] : [],
+      back_fields: [
+        ...(c.notes ? [{ key: "notes", label: "Notes", value: c.notes }] : []),
+        ...(c.number ? [{ key: "number-back", label: c.numberLabel || "Member number", value: c.number }] : []),
+      ],
+      serial_number: c.id,
+    };
+    if (c.showName || !c.logo) args.logo_text = c.name || "";
+    if (c.code && c.format !== "none") { args.barcode_message = c.code; args.barcode_format = WALLET_FORMAT[c.format] || "Code128"; }
+    if (c.expires) args.expiration_date = new Date(c.expires + "T23:59:59").toISOString();
+    if (c.logo) {
+      args.logo_png_b64 = await pngB64(await fitImage(c.logo, 480, 150));
+      const S = 87, ic = Img.canvasOf(S, S), x = ic.getContext("2d");
+      x.fillStyle = c.bg; x.fillRect(0, 0, S, S);
+      const l = await fitImage(c.logo, S * 0.8, S * 0.8);
+      x.drawImage(l, (S - l.width) / 2, (S - l.height) / 2);
+      args.icon_png_b64 = await pngB64(ic);
+    } else {
+      args.icon_color = c.bg; args.icon_text = (c.name || "?").slice(0, 2);
+    }
+    return args;
+  }
+
+  async function signAndAdd(c, btn) {
+    const label = btn.innerHTML;
+    btn.disabled = true; btn.innerHTML = ""; btn.append(h("span", { class: "spinner" }), "Making your pass");
+    try {
+      const res = await fetch(relayUrl(), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(await passArgs(c)) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.download_url) throw new Error(data.error || "Couldn’t make the pass right now");
+      window.location.href = data.download_url; // Apple's Add to Apple Wallet screen opens
+    } catch (e) {
+      toast(navigator.onLine === false ? "You’re offline. Try again with internet." : e.message, 4200);
+    } finally {
+      btn.disabled = false; btn.innerHTML = label;
+    }
+  }
+
+  // ---------- Apple Wallet, the built-in way (fallback) ----------
   // iOS 27's Wallet can create a pass itself (Wallet > + > Create a Pass).
   // Cardfolio hands it a clean image of the card to scan, plus the details to copy.
   async function cardImage(c) {
@@ -721,6 +839,41 @@
   // =========================================================
   // Settings
   // =========================================================
+  function openStoreLogos() {
+    let q = "";
+    const listWrap = h("div");
+    const draw = () => {
+      listWrap.innerHTML = "";
+      const groups = {};
+      TEMPLATES.filter((t) => !q || t.name.toLowerCase().includes(q)).forEach((t) => (groups[t.group] ||= []).push(t));
+      Object.entries(groups).forEach(([g, list]) => {
+        listWrap.append(h("div", { class: "section-label" }, g),
+          h("div", { class: "group" }, list.map((t) => {
+            const has = !!storeLogos[t.name];
+            return h("div", { class: "row store-row" },
+              h("span", { class: "monogram monogram--large", style: `background:${t.bg || "var(--surface-2)"};color:${t.fg || "var(--text-1)"}` },
+                has ? h("img", { src: storeLogos[t.name], alt: "", class: "monogram-logo" }) : t.name.slice(0, 1)),
+              h("span", { class: "row-main row-title" }, t.name),
+              has ? h("button", { class: "field-remove", type: "button", style: "margin-right:12px", onclick: async () => {
+                delete storeLogos[t.name]; await saveStoreLogos(); draw(); } }, "Remove") : null,
+              h("button", { class: "btn btn--secondary btn--small", type: "button", onclick: async () => {
+                const f = await pickImage(); if (!f) return;
+                storeLogos[t.name] = await cleanLogo(f); await saveStoreLogos(); draw(); toast(t.name + " logo added");
+              } }, has ? "Change" : "Add logo"));
+          })));
+      });
+    };
+    sheet("sheet-stores", {
+      left: textBtn("Back", () => close("sheet-stores")),
+      title: "Store logos",
+      body: h("div", {},
+        h("p", { class: "sheet-lede" }, "Add a logo image once, from Photos or Files, and every new card for that store gets it. Transparent PNGs work best. Logos stay on this phone."),
+        h("input", { class: "input-solo", type: "search", placeholder: "Search stores", "aria-label": "Search stores", oninput: (e) => { q = e.target.value.trim().toLowerCase(); draw(); } }),
+        listWrap),
+    });
+    draw();
+  }
+
   async function openSettings() {
     const row = (title, sub, onclick, right) => h(onclick ? "button" : "div", { class: "row", type: onclick ? "button" : null, onclick },
       h("span", { class: "row-main" }, h("div", { class: "row-title" }, title), sub ? h("div", { class: "row-sub" }, sub) : null), right || (onclick ? chevron() : null));
@@ -735,10 +888,12 @@
             if (v) { close("sheet-settings"); showLock("set"); }
             else { settings.pinHash = null; await saveSettings(); toast("PIN lock turned off"); openSettings(); }
           }, "PIN lock"))),
+        h("div", { class: "section-label" }, "Stores"),
+        h("div", { class: "group" }, row("Store logos", Object.keys(storeLogos).length ? `${Object.keys(storeLogos).length} added, saved on this phone` : "Add logos once, use them on every card", () => openStoreLogos())),
         h("div", { class: "section-label" }, "Backup"),
         h("div", { class: "group" },
           row("Export backup", `${cards.length} card${cards.length === 1 ? "" : "s"}, with images`, () => {
-            download(new Blob([JSON.stringify({ app: "cards", version: 2, exported: new Date().toISOString(), cards })], { type: "application/json" }), `cards-backup-${new Date().toISOString().slice(0, 10)}.json`);
+            download(new Blob([JSON.stringify({ app: "cards", version: 2, exported: new Date().toISOString(), cards, storeLogos })], { type: "application/json" }), `cards-backup-${new Date().toISOString().slice(0, 10)}.json`);
             toast("Backup exported");
           }),
           row("Import backup", "Adds cards you don’t already have", async () => {
@@ -748,6 +903,7 @@
               const incoming = data.cards || (data.passes || []).map(fromV1);
               const ids = new Set(cards.map((c) => c.id)); let n = 0;
               incoming.forEach((c) => { if (c && !ids.has(c.id)) { cards.push(blankCard(c)); n++; } });
+              if (data.storeLogos) { storeLogos = { ...data.storeLogos, ...storeLogos }; await saveStoreLogos(); }
               await saveCards(); renderHome(); toast(`Imported ${n} card${n === 1 ? "" : "s"}`);
             } catch { toast("That file isn’t a backup from this app"); }
           })),
@@ -819,6 +975,7 @@
     buildKeypad();
     cards = await Store.get("cards", null);
     settings = await Store.get("settings", { pinHash: null });
+    storeLogos = await Store.get("storeLogos", {});
     if (!cards) {
       cards = [];
       try {

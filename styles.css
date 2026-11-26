@@ -159,11 +159,23 @@ button.row:active { background: var(--surface-2); }
 .field:focus-within .field-label { color: var(--text-1); }
 .field-pair { display: grid; grid-template-columns: 1fr 1.4fr; }
 .field-pair .field:first-child { border-right: 1px solid var(--hairline); }
+.field-pair--wide-first { grid-template-columns: 1.4fr 1fr; }
 .input-solo {
   width: 100%; background: var(--surface-1); border: 1px solid var(--hairline); border-radius: var(--r-control);
   padding: 13px var(--s-4); font: var(--t-body);
 }
 input[type="range"] { width: 100%; accent-color: var(--accent); }
+
+/* ---------- Add chips (progressive disclosure) ---------- */
+.add-chips { display: flex; flex-wrap: wrap; gap: var(--s-2); margin-top: var(--s-3); }
+.add-chip {
+  border: 1px dashed var(--lilac-line); background: transparent; color: var(--accent);
+  border-radius: var(--r-pill); padding: 8px 14px; font: var(--t-callout); font-weight: 500;
+}
+.add-chip:active { background: var(--lilac-soft); }
+.field-label--row { display: flex; justify-content: space-between; align-items: center; }
+.field-remove { background: none; border: 0; padding: 0; font: var(--t-caption); color: var(--text-3); }
+.tool .group { background: var(--surface-2); }
 
 /* ---------- Swatches ---------- */
 .swatches { display: flex; flex-wrap: wrap; gap: 10px; }
@@ -298,6 +310,9 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 
 /* Store list */
 .store-row .monogram { width: 32px; height: 32px; border-radius: 8px; background: var(--surface-2); display: grid; place-items: center; font: var(--t-caption); font-weight: 600; flex: none; }
+.monogram { overflow: hidden; }
+.monogram-logo { width: 80%; height: 80%; object-fit: contain; display: block; }
+.store-row .monogram--large { width: 40px; height: 40px; border-radius: 10px; }
 
 /* Editor */
 .editor-preview { padding-top: var(--s-2); }
