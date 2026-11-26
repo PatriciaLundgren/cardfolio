@@ -268,12 +268,14 @@
   }
   // The full ready-made design for a store
   async function templateDesign(t) {
-    const logo = await templateLogo(t);
+    const src = await templateLogo(t);
+    const tint = storeLogos[t.name] ? "original" : (t.logoTint || "original");
+    const logo = src && tint !== "original" ? await Img.processLogo(src, { removeBg: false, tint }) : src;
     const style = t.banner || null;
     return {
       name: t.name, template: t.name, numberLabel: t.numberLabel || "Member number",
       bg: t.bg || "#1C1C1E", fg: t.fg || "auto", accent: t.accent || null,
-      logo, logoSrc: logo, logoRemoveBg: false, logoTint: "original", brandMode: logo ? "logo" : "name",
+      logo, logoSrc: src, logoRemoveBg: false, logoTint: tint, brandMode: logo ? "logo" : "name",
       bannerStyle: style, banner: style ? W.Banners.render(style, t.bg || "#1C1C1E", t.accent) : null,
     };
   }
