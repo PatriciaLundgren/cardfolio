@@ -33,7 +33,14 @@ export default {
 
     try {
       if (!env.CONTACT_EMAIL) return json({ error: "The relay is missing its CONTACT_EMAIL setting" }, 500);
-      return json(await createPass({ ...args, contact_email: env.CONTACT_EMAIL, x402_ready: false }));
+      const pass = await createPass({ ...args, contact_email: env.CONTACT_EMAIL, x402_ready: false });
+      // ?file=1 returns the signed pass file itself, so the app can share it
+      if (new URL(request.url).searchParams.get("file")) {
+        const file = await fetch(pass.download_url);
+        if (!file.ok) return json({ error: "Couldn’t fetch the signed pass" }, 502);
+        return new Response(file.body, { headers: { ...cors, "Content-Type": "application/vnd.apple.pkpass" } });
+      }
+      return json(pass);
     } catch (e) {
       const limited = /\b(402|429)\b/.test(e.message);
       return json({ error: limited ? "The free signing limit for today is used up. Try again after 01:00 Swedish time." : e.message }, limited ? 429 : 502);
