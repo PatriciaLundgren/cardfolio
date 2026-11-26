@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#000000">
+  <meta name="color-scheme" content="dark">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Cardfolio">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Cardfolio</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icon-180.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Lock -->
+  <section id="lock" class="lock" hidden>
+    <div class="lock-inner">
+      <div class="app-mark" aria-hidden="true"><i></i><i></i><i></i></div>
+      <p id="lock-msg" class="lock-msg">Enter your PIN</p>
+      <div class="pin-dots" id="pin-dots"><i></i><i></i><i></i><i></i></div>
+      <div class="keypad" id="keypad"></div>
+    </div>
+  </section>
+
+  <!-- Home -->
+  <main id="home" hidden>
+    <header class="appbar">
+      <h1 class="large-title">Cardfolio</h1>
+      <div class="appbar-actions">
+        <button class="icon-btn" id="open-settings" aria-label="Settings">
+          <svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+        </button>
+        <button class="icon-btn icon-btn--primary" id="open-new" aria-label="Add card">
+          <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+      </div>
+    </header>
+    <div class="search" id="search-wrap" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg>
+      <input id="search" type="search" placeholder="Search" autocomplete="off" aria-label="Search cards">
+    </div>
+    <div id="stack" class="stack"></div>
+    <div id="empty" class="empty" hidden>
+      <div class="app-mark app-mark--large" aria-hidden="true"><i></i><i></i><i></i></div>
+      <h2>Add your first card</h2>
+      <p>Screenshot your member card in the store’s app. We’ll pick up the logo, colors and barcode for you.</p>
+      <button class="btn btn--primary btn--block" id="empty-new">Add a card</button>
+    </div>
+  </main>
+
+  <dialog id="sheet-new" class="sheet"></dialog>
+  <dialog id="sheet-stores" class="sheet"></dialog>
+  <dialog id="sheet-crop" class="sheet sheet--dark"></dialog>
+  <dialog id="sheet-editor" class="sheet"></dialog>
+  <dialog id="sheet-detail" class="sheet"></dialog>
+  <dialog id="sheet-camera" class="sheet sheet--dark"></dialog>
+  <dialog id="sheet-settings" class="sheet"></dialog>
+  <dialog id="sheet-signing" class="sheet"></dialog>
+
+  <input type="file" id="pick-image" accept="image/*" hidden>
+  <input type="file" id="pick-file" hidden>
+  <div id="scan-file" hidden></div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bwip-js@4.11.4/dist/bwip-js-min.js"></script>
+  <script src="templates.js"></script>
+  <script src="core.js"></script>
+  <script src="pkpass.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
