@@ -31,7 +31,7 @@
   --focus: var(--lilac);
 
   /* Type */
-  --font: "Geist", -apple-system, "SF Pro Text", system-ui, "Segoe UI", sans-serif;
+  --font: "Instrument Sans", -apple-system, "SF Pro Text", system-ui, "Segoe UI", sans-serif;
   --t-large: 600 32px/1.1 var(--font);
   --t-title: 600 20px/1.25 var(--font);
   --t-headline: 600 17px/1.3 var(--font);
@@ -184,7 +184,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 /* Brand logo */
 .brand { display: flex; align-items: center; gap: var(--s-3); }
 .brand-mark { width: 34px; height: 34px; display: block; }
-.app-icon { display: block; width: 112px; height: 112px; border-radius: 26px; margin: 0 auto var(--s-6); box-shadow: 0 16px 40px rgba(183, 157, 232, 0.18); }
+.app-icon { display: block; width: 112px; height: 112px; border-radius: 26px; margin: 0 auto var(--s-6); }
 .app-icon--small { width: 64px; height: 64px; border-radius: 15px; margin-bottom: 0; }
 
 .empty { max-width: 340px; margin: 10vh auto 0; padding: 0 var(--s-6); text-align: center; }

@@ -90,7 +90,7 @@
       return rgbToHex([med(rs), med(gs), med(bs)]);
     },
     // A few dominant colors, most common first
-    palette(c, n = 6) {
+    palette(c, n = 6, { bits = 4, minDist = 48 } = {}) {
       const s = Math.min(1, 160 / Math.max(c.width, c.height));
       const t = canvasOf(c.width * s, c.height * s);
       t.getContext("2d").drawImage(c, 0, 0, t.width, t.height);
@@ -98,7 +98,8 @@
       const buckets = new Map();
       for (let i = 0; i < d.length; i += 4) {
         if (d[i + 3] < 200) continue;
-        const k = (d[i] >> 4) << 8 | (d[i + 1] >> 4) << 4 | (d[i + 2] >> 4);
+        const sh = 8 - bits;
+        const k = (d[i] >> sh) << (2 * bits) | (d[i + 1] >> sh) << bits | (d[i + 2] >> sh);
         const b = buckets.get(k) || { n: 0, r: 0, g: 0, b: 0 };
         b.n++; b.r += d[i]; b.g += d[i + 1]; b.b += d[i + 2];
         buckets.set(k, b);
@@ -106,7 +107,7 @@
       const sorted = [...buckets.values()].sort((a, b) => b.n - a.n).map((b) => [b.r / b.n, b.g / b.n, b.b / b.n]);
       const out = [];
       for (const c of sorted) {
-        if (out.every((o) => Math.hypot(o[0] - c[0], o[1] - c[1], o[2] - c[2]) > 48)) out.push(c);
+        if (out.every((o) => Math.hypot(o[0] - c[0], o[1] - c[1], o[2] - c[2]) > minDist)) out.push(c);
         if (out.length >= n) break;
       }
       return out.map(rgbToHex);
@@ -180,6 +181,120 @@
       if (tint === "black") c = Img.tint(c, "#111111");
       if (removeBg) c = Img.trim(c);
       return c.toDataURL("image/png");
+    },
+    // Find the card, its logo and an optional banner in a screenshot.
+    // Returns rects in the screenshot's own pixels, or nulls when unsure.
+    analyzeCard(src) {
+      const S = Math.min(1, 360 / src.width);
+      const t = canvasOf(src.width * S, src.height * S);
+      const tctx = t.getContext("2d", { willReadFrequently: true });
+      tctx.drawImage(src, 0, 0, t.width, t.height);
+      const { width: w, height: h } = t;
+      const d = tctx.getImageData(0, 0, w, h).data;
+      const px = (x, y) => (y * w + x) * 4;
+      const near = (i, c, tol) => Math.abs(d[i] - c[0]) + Math.abs(d[i + 1] - c[1]) + Math.abs(d[i + 2] - c[2]) < tol;
+      const page = hexToRgb(Img.borderColor(t));
+      const up = (r) => r && { x: r.x / S, y: r.y / S, w: r.w / S, h: r.h / S };
+
+      // 1. The card: the largest solid-colored region that isn't the page background
+      const seen = new Uint8Array(w * h);
+      let best = null;
+      for (const hex of Img.palette(t, 10, { bits: 5, minDist: 14 })) {
+        const c = hexToRgb(hex);
+        const fromPage = Math.abs(c[0] - page[0]) + Math.abs(c[1] - page[1]) + Math.abs(c[2] - page[2]);
+        if (fromPage < 20) continue;
+        const tol = Math.min(54, fromPage * 0.6);
+        seen.fill(0);
+        const parts = [];
+        for (let y0 = 0; y0 < h; y0 += 3) for (let x0 = 0; x0 < w; x0 += 3) {
+          const p0 = y0 * w + x0;
+          if (seen[p0] || !near(p0 * 4, c, tol)) continue;
+          let n = 0, x1 = w, y1 = h, x2 = 0, y2 = 0;
+          const st = [p0]; seen[p0] = 1;
+          while (st.length) {
+            const p = st.pop(); n++;
+            const x = p % w, y = (p / w) | 0;
+            if (x < x1) x1 = x; if (x > x2) x2 = x; if (y < y1) y1 = y; if (y > y2) y2 = y;
+            for (const q of [p - 1, p + 1, p - w, p + w]) {
+              if (q < 0 || q >= w * h || seen[q] || Math.abs((q % w) - x) > 1) continue;
+              if (near(q * 4, c, tol)) { seen[q] = 1; st.push(q); }
+            }
+          }
+          if (n > 40) parts.push({ n, x1, y1, x2, y2 });
+        }
+        // A banner or barcode can split the card into pieces of the same color:
+        // join the pieces that line up with the biggest one.
+        parts.sort((a, b) => b.n - a.n);
+        const m = parts[0];
+        if (!m) continue;
+        let n = m.n, x1 = m.x1, y1 = m.y1, x2 = m.x2, y2 = m.y2;
+        for (const q of parts.slice(1)) {
+          const overlap = Math.min(x2, q.x2) - Math.max(x1, q.x1);
+          if (overlap > (x2 - x1) * 0.85 && Math.abs((q.x2 - q.x1) - (x2 - x1)) < (x2 - x1) * 0.1) {
+            n += q.n; x1 = Math.min(x1, q.x1); y1 = Math.min(y1, q.y1); x2 = Math.max(x2, q.x2); y2 = Math.max(y2, q.y2);
+          }
+        }
+        const bw = x2 - x1 + 1, bh = y2 - y1 + 1;
+        if (bw < w * 0.4 || bh < h * 0.08 || bw > w * 0.99 || n / (bw * bh) < 0.35) continue;
+        if (!best || n > best.n) best = { n, c, r: { x: x1, y: y1, w: bw, h: bh } };
+      }
+      if (!best) return { card: null, color: null, logo: null, banner: null };
+      const card = best.r, cc = best.c;
+
+      // 2. Content inside the card: anything clearly not card colored
+      const ix = Math.round(card.x + card.w * 0.03), iw = Math.round(card.w * 0.94);
+      const iy = Math.round(card.y + card.h * 0.03), ih = Math.round(card.h * 0.94);
+      const rowFrac = [], rowColors = [];
+      for (let y = iy; y < iy + ih; y++) {
+        let n = 0; const cols = new Set();
+        for (let x = ix; x < ix + iw; x++) {
+          const i = px(x, y);
+          if (!near(i, cc, 90)) n++;
+          cols.add((d[i] >> 4) << 8 | (d[i + 1] >> 4) << 4 | (d[i + 2] >> 4));
+        }
+        rowFrac.push(n / iw); rowColors.push(cols.size);
+      }
+
+      // 3. Banner: a tall, colorful band that spans almost the full card width
+      let banner = null;
+      for (let y = 0; y < ih; y++) {
+        if (rowFrac[y] < 0.75) continue;
+        let e = y; while (e + 1 < ih && rowFrac[e + 1] >= 0.75) e++;
+        const bandH = e - y + 1;
+        const colorful = rowColors.slice(y, e + 1).reduce((a, b) => a + b, 0) / bandH;
+        if (bandH >= card.h * 0.12 && bandH <= card.h * 0.6 && colorful >= 18) {
+          banner = { x: card.x, y: iy + y, w: card.w, h: bandH, rows: [y, e] };
+          break;
+        }
+        y = e;
+      }
+
+      // 4. Logo: the first cluster of content from the top, skipping the banner
+      let logo = null;
+      const gap = Math.max(2, Math.round(card.h * 0.025));
+      for (let y = 0; y < ih; y++) {
+        if (banner && y >= banner.rows[0] && y <= banner.rows[1]) continue;
+        if (rowFrac[y] < 0.01) continue;
+        let e = y, quiet = 0;
+        for (let k = y + 1; k < ih; k++) {
+          if (banner && k >= banner.rows[0]) break;
+          if (rowFrac[k] < 0.01) { if (++quiet > gap) break; } else { quiet = 0; e = k; }
+        }
+        if (e - y + 1 > card.h * 0.45) break; // too tall to be a logo
+        let x1 = ix + iw, x2 = ix;
+        for (let yy = y; yy <= e; yy++) for (let x = ix; x < ix + iw; x++) {
+          if (!near(px(x, iy + yy), cc, 90)) { if (x < x1) x1 = x; if (x > x2) x2 = x; }
+        }
+        if (x2 - x1 < 4) { y = e; continue; }
+        const pad = Math.max(3, Math.round((e - y + 1) * 0.25));
+        logo = {
+          x: Math.max(card.x, x1 - pad), y: Math.max(card.y, iy + y - pad),
+          w: Math.min(card.x + card.w, x2 + pad) - Math.max(card.x, x1 - pad),
+          h: Math.min(card.y + card.h, iy + e + pad) - Math.max(card.y, iy + y - pad),
+        };
+        break;
+      }
+      return { card: up(card), color: rgbToHex(cc), logo: up(logo), banner: banner && up(banner) };
     },
     canvasOf,
   };

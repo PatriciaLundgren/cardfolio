@@ -231,7 +231,7 @@
       body: h("div", { style: "padding-top:24px;text-align:center" },
         h("img", { class: "app-icon", src: "logo.svg", alt: "" }),
         h("h2", { class: "sheet-h" }, "Add a screenshot of your card"),
-        h("p", { class: "sheet-lede" }, `Open the ${card.name} app, show your member card and take a screenshot. You’ll crop the logo next.`)),
+        h("p", { class: "sheet-lede" }, `Open the ${card.name} app, show your member card and take a screenshot. We’ll do the rest.`)),
       foot: h("div", { class: "tool-stack" },
         h("button", { class: "btn btn--primary btn--block", type: "button", onclick: () => { close("sheet-new"); fromScreenshot(card); } }, "Choose screenshot"),
         h("button", { class: "btn btn--ghost btn--block", type: "button", onclick: () => { close("sheet-new"); openEditor(card, { isNew: true, tab: "preview" }); } }, "Skip and design it myself")),
@@ -247,37 +247,49 @@
     return shot;
   }
 
+  // Everything is found automatically: card color, logo, banner and barcode.
+  // Manual cropping is only a fallback when the logo can't be found.
   async function fromScreenshot(card) {
     const file = await pickImage();
     if (!file) return;
+    toast("Reading your screenshot…", 8000);
     await loadShot(file);
     card.suggested = shot.palette;
     const codeP = Barcode.fromCanvas(shot.canvas).catch(() => null);
 
-    const logoRect = await cropFrom("logo", { step: "1 of 2" });
-    if (logoRect) await applyLogoCrop(card, logoRect);
-    const bannerRect = await cropFrom("banner", { step: "2 of 2", skippable: true });
-    if (bannerRect) applyBannerCrop(card, bannerRect);
+    const found = Img.analyzeCard(shot.canvas);
+    if (found.color) {
+      card.bg = found.color;
+      card.suggested = [found.color, ...shot.palette.filter((c) => c !== found.color)].slice(0, 6);
+    }
+    if (found.logo) await applyLogoCrop(card, found.logo, found.color);
+    else {
+      const r = await cropFrom("logo", { hint: "We couldn’t spot the logo. Drag a box around it." });
+      if (r) await applyLogoCrop(card, r);
+    }
+    if (found.banner) applyBannerCrop(card, found.banner);
 
-    const found = await codeP;
-    if (found) { card.code = found.text; card.format = found.format; toast("Barcode found"); }
-    else toast("No barcode found. Tap the barcode area to add it.", 3200);
+    const code = await codeP;
+    if (code) { card.code = code.text; card.format = code.format; }
+    toast(code ? "Card created. Tap any part to fine-tune." : "Card created. No barcode found, so tap the barcode area to add it.", 3600);
     openEditor(card, { isNew: true, tab: "preview" });
   }
 
-  async function applyLogoCrop(card, rect) {
+  async function applyLogoCrop(card, rect, color) {
     const c = Img.crop(shot.canvas, rect, 900);
+    shot.logoRect = rect;
     card.logoSrc = c.toDataURL("image/png");
-    card.bg = Img.borderColor(c);
+    card.bg = color || Img.borderColor(c);
     if (!card.suggested?.includes(card.bg)) card.suggested = [card.bg, ...(card.suggested || [])].slice(0, 6);
     card.logo = await Img.processLogo(card.logoSrc, { removeBg: card.logoRemoveBg, tolerance: card.logoTolerance, tint: card.logoTint });
   }
   function applyBannerCrop(card, rect) {
+    shot.bannerRect = rect;
     card.banner = Img.crop(shot.canvas, rect, 1125).toDataURL("image/jpeg", 0.9);
   }
 
   // ---------- Crop sheet ----------
-  function cropFrom(mode, { step, skippable } = {}) {
+  function cropFrom(mode, { step, skippable, hint, initial } = {}) {
     return new Promise((resolve) => {
       const isBanner = mode === "banner";
       const ratio = isBanner ? 375 / 123 : null;
@@ -288,6 +300,11 @@
       const useBtn = textBtn("Use", () => done(true), true);
       useBtn.disabled = true;
 
+      if (initial) img.addEventListener("load", () => requestAnimationFrame(() => {
+        const k = img.clientWidth / shot.canvas.width;
+        r = { x: initial.x * k, y: initial.y * k, w: initial.w * k, h: initial.h * k };
+        useBtn.disabled = false; draw();
+      }), { once: true });
       const draw = () => {
         if (!r) { sel.hidden = true; return; }
         sel.hidden = false;
@@ -337,7 +354,7 @@
         title: h("div", { style: "text-align:center" }, h("h2", { class: "sheet-title" }, isBanner ? "Crop a banner" : "Crop the logo"), step ? h("div", { class: "row-sub" }, step) : null),
         right: useBtn,
         body: h("div", { class: "crop-body", style: "height:100%" },
-          h("p", { class: "crop-hint" }, isBanner ? "Optional. Drag across an image you’d like as the banner." : "Drag a box tightly around the logo. The background is removed for you."),
+          h("p", { class: "crop-hint" }, hint || (isBanner ? "Drag across the part you’d like as the banner." : "Drag a box around the logo. The background is removed for you.")),
           h("div", { class: "crop-stage-wrap" }, stage)),
         foot: h("button", { class: "btn btn--secondary btn--block", type: "button", onclick: async () => {
           const f = await pickImage(); if (!f) return;
@@ -432,7 +449,7 @@
     };
     const cropInto = async (kind) => {
       if (!shot) { const f = await pickImage(); if (!f) return; await loadShot(f); draft.suggested = shot.palette; }
-      const r = await cropFrom(kind);
+      const r = await cropFrom(kind, { initial: kind === "logo" ? shot.logoRect : shot.bannerRect });
       if (!r) return;
       if (kind === "logo") await applyLogoCrop(draft, r); else applyBannerCrop(draft, r);
       paint(); paintTool();
@@ -449,7 +466,7 @@
     if (zone === "logo") {
       return tool("Logo",
         h("div", { class: "btn-row" },
-          shot ? h("button", { class: "btn btn--secondary btn--small", type: "button", onclick: () => cropInto("logo") }, "Crop from screenshot") : null,
+          shot ? h("button", { class: "btn btn--secondary btn--small", type: "button", onclick: () => cropInto("logo") }, shot.logoRect ? "Adjust crop" : "Crop from screenshot") : null,
           h("button", { class: "btn btn--secondary btn--small", type: "button", onclick: () => newImage("logo") }, draft.logo ? "Choose new image" : "Choose image")),
         draft.logoSrc ? [
           h("div", { class: "tool-row" }, h("label", {}, "Remove background"), sw(draft.logoRemoveBg, (v) => { draft.logoRemoveBg = v; reprocessLogo(); paintTool(); }, "Remove background")),
@@ -471,7 +488,7 @@
     if (zone === "banner") {
       return tool("Banner",
         h("div", { class: "btn-row" },
-          shot ? h("button", { class: "btn btn--secondary btn--small", type: "button", onclick: () => cropInto("banner") }, "Crop from screenshot") : null,
+          shot ? h("button", { class: "btn btn--secondary btn--small", type: "button", onclick: () => cropInto("banner") }, shot.bannerRect ? "Adjust crop" : "Crop from screenshot") : null,
           h("button", { class: "btn btn--secondary btn--small", type: "button", onclick: () => newImage("banner") }, "Choose image")),
         h("p", { class: "note" }, "A wide image under the logo. Leave it empty for a cleaner card."),
         draft.banner ? h("button", { class: "btn btn--danger btn--small", type: "button", style: "padding:0;margin-top:8px", onclick: () => { draft.banner = null; paint(); paintTool(); } }, "Remove banner") : null
