@@ -1,5 +1,5 @@
 // Offline support. Bump the version after you change files.
-const CACHE = "cardfolio-v8";
+const CACHE = "cardfolio-v9";
 const CORE = ["./", "index.html", "styles.css", "app.js", "core.js", "templates.js", "manifest.webmanifest", "icon-180.png", "icon-192.png", "icon-512.png", "logo.svg", "mark.svg", "brand.html"];
 
 self.addEventListener("install", (e) => {

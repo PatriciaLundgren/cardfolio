@@ -252,6 +252,12 @@
         h("p", { class: "sheet-lede" }, `Open the ${card.name} app, show your member card and take a screenshot. We’ll do the rest.`)),
       foot: h("div", { class: "tool-stack" },
         h("button", { class: "btn btn--primary btn--block", type: "button", onclick: () => { close("sheet-new"); fromScreenshot(card); } }, "Choose screenshot"),
+        !card.logo ? h("button", { class: "btn btn--secondary btn--block", type: "button", onclick: async () => {
+          const f = await pickImage(); if (!f) return;
+          const logo = await cleanLogo(f);
+          close("sheet-new");
+          openEditor({ ...card, logo, logoSrc: logo, logoRemoveBg: false }, { isNew: true, tab: "preview", zone: "code" });
+        } }, "I have a logo file") : null,
         h("button", { class: "btn btn--ghost btn--block", type: "button", onclick: () => { close("sheet-new"); openEditor(card, { isNew: true, tab: "preview" }); } }, "Skip and design it myself")),
     });
   }
@@ -488,6 +494,15 @@
     setTimeout(() => $(`#sheet-editor [data-opt="${k}"] input, #sheet-editor [data-opt="${k}"] textarea`)?.focus(), 60);
   }
 
+  // A ready-made logo file (e.g. a PNG from the store's site): no cropping needed
+  async function logoFile(paint, paintTool) {
+    const f = await pickImage(); if (!f) return;
+    draft.logo = draft.logoSrc = await cleanLogo(f);
+    draft.logoRemoveBg = false; draft.logoTint = "original";
+    paint?.(); paintTool?.();
+    toast("Logo added");
+  }
+
   function toolFor(zone, paint, paintTool) {
     const tool = (title, ...content) => h("div", { class: "tool" }, h("div", { class: "tool-title" }, title), ...content);
     const reprocessLogo = async () => {
@@ -515,7 +530,8 @@
       return tool("Logo",
         h("div", { class: "btn-row" },
           shot ? h("button", { class: "btn btn--secondary btn--small", type: "button", onclick: () => cropInto("logo") }, shot.logoRect ? "Adjust crop" : "Crop from screenshot") : null,
-          h("button", { class: "btn btn--secondary btn--small", type: "button", onclick: () => newImage("logo") }, draft.logo ? "Choose new image" : "Choose image")),
+          h("button", { class: "btn btn--secondary btn--small", type: "button", onclick: () => logoFile(paint, paintTool) }, "Logo file (PNG)"),
+          h("button", { class: "btn btn--secondary btn--small", type: "button", onclick: () => newImage("logo") }, "Crop from image")),
         draft.logoSrc ? [
           h("div", { class: "tool-row" }, h("label", {}, "Remove background"), sw(draft.logoRemoveBg, (v) => { draft.logoRemoveBg = v; reprocessLogo(); paintTool(); }, "Remove background")),
           draft.logoRemoveBg ? h("div", { class: "tool-row", style: "display:block" },
@@ -530,11 +546,7 @@
         h("div", { class: "tool-row", style: "display:block" },
           h("div", { class: "swatch-label" }, "Store name"),
           h("input", { class: "input-solo", value: draft.name, placeholder: "e.g. Clas Ohlson", oninput: (e) => { draft.name = e.target.value; paint(); } })),
-        draft.logo && draft.name.trim() ? h("div", { class: "tool-row" }, h("label", {}, `Use for all ${draft.name.trim()} cards`),
-          sw(storeLogos[draft.name.trim()] === draft.logo, async (v) => {
-            if (v) storeLogos[draft.name.trim()] = draft.logo; else delete storeLogos[draft.name.trim()];
-            await saveStoreLogos(); toast(v ? "Saved for new " + draft.name.trim() + " cards" : "Store logo removed");
-          }, "Use this logo for all cards from this store")) : null,
+        draft.logo && draft.name.trim() ? h("p", { class: "note" }, `New ${draft.name.trim()} cards will get this logo automatically.`) : null,
         draft.logo ? h("button", { class: "btn btn--danger btn--small", type: "button", style: "padding:0", onclick: () => { draft.logo = draft.logoSrc = null; paint(); paintTool(); } }, "Remove logo") : null
       );
     }
@@ -639,6 +651,9 @@
     }
     draft.name = draft.name.trim();
     draft.updated = Date.now();
+    if (draft.logo && TEMPLATES.some((t) => t.name === draft.name) && storeLogos[draft.name] !== draft.logo) {
+      storeLogos[draft.name] = draft.logo; await saveStoreLogos(); // next card from this store gets it
+    }
     const i = cards.findIndex((c) => c.id === draft.id);
     if (i >= 0) cards[i] = draft; else cards.push(draft);
     await saveCards();
@@ -696,7 +711,7 @@
   // Your design goes to a tiny relay (a free Cloudflare Worker, see worker/worker.js),
   // which asks the free walletmcppass.com service to sign it. Safari then opens
   // Apple's own "Add to Apple Wallet" screen. Nothing else to do.
-  const SIGNING_RELAY = "";
+  const SIGNING_RELAY = "https://cardfolio-relay.patricia-lundgren.workers.dev/";
   const relayUrl = () => settings.relayUrl || SIGNING_RELAY;
 
   const WALLET_FORMAT = { qr: "QR", pdf417: "PDF417", aztec: "Aztec" };
@@ -839,41 +854,6 @@
   // =========================================================
   // Settings
   // =========================================================
-  function openStoreLogos() {
-    let q = "";
-    const listWrap = h("div");
-    const draw = () => {
-      listWrap.innerHTML = "";
-      const groups = {};
-      TEMPLATES.filter((t) => !q || t.name.toLowerCase().includes(q)).forEach((t) => (groups[t.group] ||= []).push(t));
-      Object.entries(groups).forEach(([g, list]) => {
-        listWrap.append(h("div", { class: "section-label" }, g),
-          h("div", { class: "group" }, list.map((t) => {
-            const has = !!storeLogos[t.name];
-            return h("div", { class: "row store-row" },
-              h("span", { class: "monogram monogram--large", style: `background:${t.bg || "var(--surface-2)"};color:${t.fg || "var(--text-1)"}` },
-                has ? h("img", { src: storeLogos[t.name], alt: "", class: "monogram-logo" }) : t.name.slice(0, 1)),
-              h("span", { class: "row-main row-title" }, t.name),
-              has ? h("button", { class: "field-remove", type: "button", style: "margin-right:12px", onclick: async () => {
-                delete storeLogos[t.name]; await saveStoreLogos(); draw(); } }, "Remove") : null,
-              h("button", { class: "btn btn--secondary btn--small", type: "button", onclick: async () => {
-                const f = await pickImage(); if (!f) return;
-                storeLogos[t.name] = await cleanLogo(f); await saveStoreLogos(); draw(); toast(t.name + " logo added");
-              } }, has ? "Change" : "Add logo"));
-          })));
-      });
-    };
-    sheet("sheet-stores", {
-      left: textBtn("Back", () => close("sheet-stores")),
-      title: "Store logos",
-      body: h("div", {},
-        h("p", { class: "sheet-lede" }, "Add a logo image once, from Photos or Files, and every new card for that store gets it. Transparent PNGs work best. Logos stay on this phone."),
-        h("input", { class: "input-solo", type: "search", placeholder: "Search stores", "aria-label": "Search stores", oninput: (e) => { q = e.target.value.trim().toLowerCase(); draw(); } }),
-        listWrap),
-    });
-    draw();
-  }
-
   async function openSettings() {
     const row = (title, sub, onclick, right) => h(onclick ? "button" : "div", { class: "row", type: onclick ? "button" : null, onclick },
       h("span", { class: "row-main" }, h("div", { class: "row-title" }, title), sub ? h("div", { class: "row-sub" }, sub) : null), right || (onclick ? chevron() : null));
@@ -888,8 +868,6 @@
             if (v) { close("sheet-settings"); showLock("set"); }
             else { settings.pinHash = null; await saveSettings(); toast("PIN lock turned off"); openSettings(); }
           }, "PIN lock"))),
-        h("div", { class: "section-label" }, "Stores"),
-        h("div", { class: "group" }, row("Store logos", Object.keys(storeLogos).length ? `${Object.keys(storeLogos).length} added, saved on this phone` : "Add logos once, use them on every card", () => openStoreLogos())),
         h("div", { class: "section-label" }, "Backup"),
         h("div", { class: "group" },
           row("Export backup", `${cards.length} card${cards.length === 1 ? "" : "s"}, with images`, () => {
