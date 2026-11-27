@@ -323,7 +323,7 @@
   // Read the text in a screenshot (on the phone, with Tesseract) to spot the store
   const TESSERACT_SRC = "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";
   async function readText(canvas) {
-    await loadScript(TESSERACT_SRC);
+    await W.loadScript(TESSERACT_SRC);
     const s = Math.min(1, 1300 / canvas.width);
     const c = Img.canvasOf(canvas.width * s, canvas.height * s);
     c.getContext("2d").drawImage(canvas, 0, 0, c.width, c.height);
