@@ -885,7 +885,7 @@
     if (!c) return;
     c.used = Date.now(); saveCards();
 
-    const walletBtn = h("button", { class: "btn btn--primary btn--block", type: "button", onclick: () => relayUrl() ? signAndAdd(c, walletBtn) : openWallet(c) }, icon(ICONS.wallet), "Add to Apple Wallet");
+    const walletBtn = h("button", { class: "btn btn--primary btn--block", type: "button", onclick: () => relayUrl() ? signAndAdd(c, walletBtn) : openWallet(c) }, icon(ICONS.wallet), relayUrl() ? "Create pass" : "Add to Apple Wallet");
     const d = sheet("sheet-detail", {
       left: textBtn("Done", () => close("sheet-detail")),
       title: c.name,
@@ -965,7 +965,9 @@
     const res = await fetch(relayUrl(), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(await passArgs(c)) });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.download_url) throw new Error(data.error || "Couldn’t make the pass right now");
-    return data.download_url;
+    // Open it through the relay, which hands it to Safari as an Apple Wallet pass
+    const id = data.download_url.split("/download/")[1];
+    return id ? relayUrl().replace(/\/?$/, "/") + "pass/" + id : data.download_url;
   }
   function setBtn(btn, iconName, text, spinning) {
     btn.innerHTML = "";
@@ -973,19 +975,15 @@
   }
   async function signAndAdd(c, btn) {
     const ready = btn.dataset.url && Date.now() < +btn.dataset.until;
-    if (ready) {
-      const w = window.open(btn.dataset.url, "_blank"); // Safari shows Apple’s Add to Apple Wallet screen
-      if (!w) location.href = btn.dataset.url;
-      return;
-    }
-    btn.disabled = true; setBtn(btn, "wallet", "Making your pass…", true);
+    if (ready) { location.href = btn.dataset.url; return; } // Safari shows Apple’s Add to Apple Wallet screen
+    btn.disabled = true; setBtn(btn, "wallet", "Creating pass…", true);
     try {
       btn.dataset.url = await makePass(c);
       btn.dataset.until = Date.now() + 50 * 60 * 1000; // the link lasts an hour
-      setBtn(btn, "wallet", "Pass ready. Tap to add to Wallet");
+      setBtn(btn, "wallet", "Add to Apple Wallet");
       btn.classList.add("btn--ready");
     } catch (e) {
-      setBtn(btn, "wallet", "Add to Apple Wallet");
+      setBtn(btn, "wallet", "Create pass");
       toast(navigator.onLine === false ? "You’re offline. Try again with internet." : e.message, 4200);
     } finally { btn.disabled = false; }
   }
