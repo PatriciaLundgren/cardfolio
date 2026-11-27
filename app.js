@@ -34,12 +34,37 @@
   const chevron = () => h("span", { html: `<svg class="row-chevron" viewBox="0 0 8 14"><path d="m1 1 6 6-6 6"/></svg>` }).firstChild;
 
   let toastTimer;
+  // Messages sit in the browser's top layer, so they show above open sheets too
   function toast(msg, ms = 2400) {
     const t = $("#toast");
-    t.textContent = msg; t.classList.add("show");
+    t.textContent = msg;
+    if (t.showPopover) { try { t.hidePopover(); } catch {} try { t.showPopover(); } catch {} }
+    requestAnimationFrame(() => t.classList.add("show"));
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => t.classList.remove("show"), ms);
+    toastTimer = setTimeout(() => {
+      t.classList.remove("show");
+      setTimeout(() => { if (!t.classList.contains("show") && t.hidePopover) try { t.hidePopover(); } catch {} }, 250);
+    }, ms);
   }
+
+  // A light tap of haptic feedback, like other iPhone apps. iPhone Safari has no
+  // vibration API, but toggling a hidden switch control makes it tick (iOS 18+).
+  const hapticSwitch = (() => {
+    const label = document.createElement("label");
+    label.setAttribute("aria-hidden", "true"); label.style.display = "none";
+    const input = document.createElement("input");
+    input.type = "checkbox"; input.setAttribute("switch", ""); input.tabIndex = -1;
+    label.append(input); document.head.append(label);
+    return label;
+  })();
+  function haptic() {
+    if (navigator.vibrate) { try { navigator.vibrate(8); } catch {} return; }
+    hapticSwitch.click();
+  }
+  document.addEventListener("click", (e) => {
+    if (e.target.closest?.("label") === hapticSwitch || e.target === hapticSwitch.firstChild) return;
+    if (e.target.closest?.("button:not(:disabled), [role=radio], .stack .pass, .store-row, .logo-tile")) haptic();
+  }, true);
   const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
 
   // ---------- Data ----------
@@ -1000,13 +1025,16 @@
     if (ready) { location.href = btn.dataset.url; return; } // Safari shows Apple’s Add to Apple Wallet screen
     btn.disabled = true; setBtn(btn, "wallet", "Creating pass…", true);
     try {
+      btn.parentElement?.querySelector(".wallet-note")?.remove();
       btn.dataset.url = await makePass(c);
       btn.dataset.until = Date.now() + 50 * 60 * 1000; // the link lasts an hour
       setBtn(btn, "wallet", "Add to Apple Wallet");
       btn.classList.add("btn--ready");
     } catch (e) {
       setBtn(btn, "wallet", "Create pass");
-      toast(navigator.onLine === false ? "You’re offline. Try again with internet." : e.message, 4200);
+      const msg = navigator.onLine === false ? "You’re offline. Try again with internet." : e.message;
+      const note = btn.parentElement?.querySelector(".wallet-note") || h("p", { class: "wallet-note", role: "status" });
+      note.textContent = msg; btn.after(note);
     } finally { btn.disabled = false; }
   }
 

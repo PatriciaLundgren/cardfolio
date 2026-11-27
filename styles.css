@@ -454,6 +454,10 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
   transition: opacity 0.2s, transform 0.2s var(--ease);
 }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
+/* as a popover it lives in the top layer; keep our own position, not the popover default */
+.toast[popover] { inset: auto; top: auto; right: auto; left: 50%; bottom: calc(var(--s-6) + env(safe-area-inset-bottom, 0px)); margin: 0; border: 0; overflow: visible; }
+.toast { width: max-content; border-radius: 20px; line-height: 1.35; }
+.wallet-note { margin: 8px 4px 0; font: var(--t-footnote, 13px/1.35 system-ui); color: var(--text-2); text-align: center; }
 
 .spinner { width: 18px; height: 18px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
