@@ -127,7 +127,8 @@
     }
     return d;
   }
-  const close = (id) => { const d = $("#" + id); if (d.open) d.close(); };
+  // Closing a sheet returns focus to whatever opened it (often a card); drop it so nothing looks selected
+  const close = (id) => { const d = $("#" + id); if (d.open) d.close(); requestAnimationFrame(() => document.activeElement?.blur?.()); };
   const textBtn = (label, onclick, strong) => h("button", { class: "text-btn" + (strong ? " text-btn--strong" : ""), type: "button", onclick }, label);
 
   // =========================================================
@@ -1307,6 +1308,7 @@
     $("#open-settings").onclick = openSettings;
     document.querySelectorAll("dialog").forEach((d) => d.addEventListener("cancel", (e) => { if (d.id === "sheet-camera" || d.id === "sheet-crop") e.preventDefault(); }));
     renderHome();
+    $("#home").addEventListener("scroll", (e) => $(".appbar").classList.toggle("is-scrolled", e.target.scrollTop > 4), { passive: true });
     if (settings.pinHash) showLock("unlock"); else { $("#home").hidden = false; checkIncoming(); }
     window.addEventListener("hashchange", () => { if ($("#lock").hidden) checkIncoming(); });
     if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});

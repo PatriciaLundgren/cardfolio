@@ -64,6 +64,9 @@ button { cursor: pointer; }
 :focus-visible { outline: 2px solid color-mix(in srgb, var(--focus) 70%, transparent); outline-offset: 3px; border-radius: 10px; }
 @media (hover: none) and (pointer: coarse) { :focus-visible { outline: none; } }
 dialog:focus, dialog:focus-visible { outline: none; }
+/* Cards never show a selection outline from a tap; keyboards get a soft glow instead */
+.pass:focus, .pass:focus-visible { outline: none; }
+@media (hover: hover) { .stack .pass:focus-visible { box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 55%, transparent); } }
 img { max-width: 100%; }
 
 /* iOS 26+ blurs the top edge of web pages under the status bar (the Liquid Glass
@@ -73,7 +76,6 @@ img { max-width: 100%; }
 html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
 #home {
   height: 100%; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
-  padding-top: 6px; /* a little breathing room under the status bar */
 }
 .lock { height: 100%; overflow-y: auto; }
 body::before {
@@ -107,7 +109,8 @@ body::before {
   width: 40px; height: 40px; border-radius: 50%; border: 0;
   display: grid; place-items: center; background: var(--surface-2);
 }
-.icon-btn svg { width: 20px; height: 20px; fill: none; stroke: var(--text-1); stroke-width: 2; stroke-linecap: round; }
+.icon-btn svg { width: 20px; height: 20px; fill: none; stroke: var(--text-1); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+#open-settings svg { stroke-width: 1.8; }
 .icon-btn svg circle { fill: var(--text-1); stroke: none; }
 .icon-btn--primary { background: var(--accent); }
 .icon-btn--primary svg { stroke: var(--on-accent); }
@@ -200,7 +203,15 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .swatch-label { font: var(--t-caption); color: var(--text-2); margin: 0 0 var(--s-2); }
 
 /* ---------- App bar / home ---------- */
-.appbar { display: flex; align-items: center; justify-content: space-between; padding: var(--s-4) var(--s-5) var(--s-3); max-width: 520px; margin: 0 auto; }
+.appbar {
+  display: flex; align-items: center; justify-content: space-between; max-width: 520px; margin: 0 auto;
+  padding: calc(var(--s-4) + 6px) var(--s-5) var(--s-3); /* a little breathing room under the status bar */
+  /* stays at the top while the cards scroll; the shadow trick paints the background full width */
+  position: sticky; top: 0; z-index: 20; background: var(--bg);
+  box-shadow: 0 0 0 100vmax var(--bg); clip-path: inset(0 -100vmax);
+}
+.appbar::after { content: ""; position: absolute; left: -100vmax; right: -100vmax; bottom: 0; height: 1px; background: var(--hairline); opacity: 0; transition: opacity 0.2s; }
+.appbar.is-scrolled::after { opacity: 1; }
 .large-title { font: var(--t-large); letter-spacing: -0.02em; margin: 0; }
 .appbar-actions { display: flex; gap: var(--s-2); }
 .search {
