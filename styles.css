@@ -60,7 +60,10 @@ body { margin: 0; background: var(--bg); color: var(--text-1); font: var(--t-bod
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 [hidden] { display: none !important; }
-:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+:focus { outline: none; }
+:focus-visible { outline: 2px solid color-mix(in srgb, var(--focus) 70%, transparent); outline-offset: 3px; border-radius: 10px; }
+@media (hover: none) and (pointer: coarse) { :focus-visible { outline: none; } }
+dialog:focus, dialog:focus-visible { outline: none; }
 img { max-width: 100%; }
 
 /* iOS 26+ blurs the top edge of web pages under the status bar (the Liquid Glass
@@ -101,7 +104,7 @@ body::before {
 .icon-btn svg circle { fill: var(--text-1); stroke: none; }
 .icon-btn--primary { background: var(--accent); }
 .icon-btn--primary svg { stroke: var(--on-accent); }
-.text-btn { background: none; border: 0; padding: var(--s-2) var(--s-1); font: var(--t-callout); font-size: 16px; color: var(--text-2); }
+.text-btn { background: none; border: 0; border-radius: 10px; padding: var(--s-2) var(--s-1); font: var(--t-callout); font-size: 16px; color: var(--text-2); }
 .text-btn--strong { color: var(--accent); font-weight: 600; }
 
 /* ---------- Segmented control ---------- */
@@ -327,7 +330,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .divider { height: 1px; background: var(--hairline); margin: var(--s-4) var(--s-2) var(--s-4); }
 .option--plain { background: transparent; }
 .option--ready .row-sub { color: var(--accent); }
-.btn--ready { box-shadow: 0 0 0 2px var(--lilac-line); }
+.btn--ready { box-shadow: none; }
 .option--plain:active { background: var(--surface-1); }
 .option--quiet { background: transparent; padding-top: var(--s-3); padding-bottom: var(--s-3); }
 .option--quiet .option-icon { width: 36px; height: 36px; border-radius: 10px; }

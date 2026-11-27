@@ -121,7 +121,10 @@
       h("div", { class: "sheet-body" }, body),
       ...(foot ? [h("footer", { class: "sheet-foot" }, foot)] : [])
     );
-    if (!d.open) d.showModal();
+    if (!d.open) {
+      d.showModal();
+      d.tabIndex = -1; d.focus({ preventScroll: true }); // no outline on the first button when a sheet opens
+    }
     return d;
   }
   const close = (id) => { const d = $("#" + id); if (d.open) d.close(); };
@@ -682,12 +685,26 @@
     toast("Logo added");
   }
 
+  // Reads the barcode, and fills in your name and member number if the screenshot shows them
   async function barcodeFromScreenshot(paint, paintTool) {
     const f = await pickImage(); if (!f) return;
-    toast("Reading the barcode…", 6000);
+    toast("Reading your screenshot…", 15000);
     const c = await Img.fromFile(f);
-    const r = await Barcode.fromCanvas(c).catch(() => null);
-    if (r) { draft.code = r.text; draft.format = r.format; paint(); paintTool(); toast("Barcode added"); }
+    const [r, text] = await Promise.all([Barcode.fromCanvas(c).catch(() => null), readText(c).catch(() => "")]);
+    const info = cardInfo(text);
+    const added = [];
+    if (r) { draft.code = r.text; draft.format = r.format; added.push("barcode"); }
+    if (info.name && !draft.memberName) { draft.memberName = info.name; added.push("name"); }
+    if (info.number && !draft.number) {
+      draft.number = info.number; if (info.label) draft.numberLabel = info.label;
+      added.push((info.label || "member number").toLowerCase());
+    }
+    if (draft.code) {
+      const digits = (t) => (t || "").replace(/\D/g, "");
+      draft.altText = draft.number ? (digits(draft.code) === digits(draft.number) ? "code" : "none") : (draft.format === "qr" ? "none" : "code");
+    }
+    paint(); paintTool();
+    if (added.length) toast("Added your " + added.join(", ").replace(/, ([^,]*)$/, " and $1"));
     else toast("No barcode found in that image. Try a sharper screenshot, or type the number.", 4200);
   }
 
