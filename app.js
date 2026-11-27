@@ -961,10 +961,14 @@
 
   // iPhone only opens a new page or the share sheet straight from a tap, so slow work
   // (signing the pass) happens on the first tap and the action on the second.
+  // Turn the signing service's errors into plain words
+  const passError = (msg) => /rate limit|free passes a day/i.test(msg || "")
+    ? "You’ve used today’s 2 free Wallet passes. You can create more tomorrow."
+    : msg || "Couldn’t make the pass right now";
   async function makePass(c) {
     const res = await fetch(relayUrl(), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(await passArgs(c)) });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data.download_url) throw new Error(data.error || "Couldn’t make the pass right now");
+    if (!res.ok || !data.download_url) throw new Error(passError(data.error));
     // Open it through the relay, which hands it to Safari as an Apple Wallet pass
     const id = data.download_url.split("/download/")[1];
     return id ? relayUrl().replace(/\/?$/, "/") + "pass/" + id : data.download_url;
@@ -1077,7 +1081,7 @@
     const passBtn = shareOption(ICONS.wallet, "Send as an Apple Wallet pass", "They tap it to add it to their Wallet", async () => {
       if (!relayUrl()) throw new Error("Wallet passes need the signing relay");
       const res = await fetch(relayUrl() + "?file=1", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(await passArgs(c)) });
-      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || "Couldn’t make the pass right now"); }
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(passError(d.error)); }
       return new File([await res.blob()], fileName(c, "pkpass"), { type: "application/vnd.apple.pkpass" });
     }, (file) => shareNow({ files: [file], title: c.name }), false);
     const imgBtn = shareOption(ICONS.image, "Save or send as an image", "A picture of the card with its barcode",
