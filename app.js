@@ -76,6 +76,15 @@
     ...patch,
   });
   const autoTint = (bg) => (Color.luminance(bg) > 0.5 ? "black" : "white");
+  // Member info, laid out the way Apple Wallet lays out a store card:
+  // the first item big in the middle, the next ones in a row below it.
+  // Labels are uppercase on both, so the preview matches Wallet exactly.
+  function memberLayout(c) {
+    const items = [];
+    if (c.memberName) items.push({ key: "name", label: "NAME", value: c.memberName });
+    if (c.number) items.push({ key: "number", label: (c.numberLabel || "Member number").toUpperCase(), value: c.number });
+    return { primary: items.slice(0, 1), secondary: items.slice(1) };
+  }
   // logo | logo+name | name. Older cards used showName.
   const brandMode = (c) => c.brandMode || (c.showName ? "logo+name" : "logo");
   const ink = (c) => (c.fg === "auto" || !c.fg ? Color.autoInk(c.bg) : c.fg);
@@ -119,7 +128,7 @@
   function renderPass(c, { edit = false, zone = null, pristine = false } = {}) {
     const fg = ink(c);
     const el = h("div", {
-      class: "pass" + (edit ? " pass--edit" : "") + (pristine ? " pass--pristine" : "") + (edit && zone === "bg" ? " is-bg-active" : "") + (c.textAlign === "center" ? " pass--center" : ""),
+      class: "pass" + (edit ? " pass--edit" : "") + (pristine ? " pass--pristine" : "") + (edit && zone === "bg" ? " is-bg-active" : "") + "",
       style: `--bg:${c.bg};--fg:${fg};--label:${Color.mix(fg, c.bg, 0.35)}`,
     });
     const z = (name) => (edit ? { "data-zone": name, class: zone === name ? "is-active" : null } : {});
@@ -135,22 +144,19 @@
     const head = h("div", { class: "pass-head" },
       h("div", { ...z("logo"), class: ["pass-brand-zone", zone === "logo" && edit ? "is-active" : ""].join(" ") }, brand),
       c.headerValue || (edit && zone === "fields")
-        ? h("div", { class: "pass-headfield" }, h("div", { class: "pass-label" }, c.headerLabel || ""), h("div", { class: "pass-value" }, c.headerValue || ""))
+        ? h("div", { class: "pass-headfield" }, h("div", { class: "pass-label" }, (c.headerLabel || "").toUpperCase()), h("div", { class: "pass-value" }, c.headerValue || ""))
         : null
     );
     el.append(head);
 
-    if (c.banner) el.append(h("div", { ...z("banner"), class: "pass-strip" + (zone === "banner" && edit ? " is-active" : ""), style: `background-image:url(${c.banner})` }));
-    else if (edit) el.append(h("div", { ...z("banner"), class: "pass-strip" + (zone === "banner" ? " is-active" : "") }, h("div", { class: "strip-empty" }, "Add a banner")));
-
-    const fields = [];
-    if (c.memberName) fields.push([ "Name", c.memberName ]);
-    if (c.number) fields.push([c.numberLabel || "Member number", c.number]);
-    if (fields.length || edit) {
-      el.append(h("div", { ...z("fields"), class: "pass-fields" + (zone === "fields" && edit ? " is-active" : ""), style: edit ? "min-height:52px" : null },
-        fields.length ? fields.map(([l, v]) => h("div", {}, h("div", { class: "pass-label" }, l), h("div", { class: "pass-value" }, v)))
-          : h("div", { class: "pass-label", style: "padding-top:12px" }, "Add name or number")
-      ));
+    // Middle: member info, exactly where Apple Wallet puts it
+    const ml = memberLayout(c);
+    if (ml.primary.length || edit) {
+      const field = (f, cls) => h("div", { class: cls }, h("div", { class: "pass-label" }, f.label), h("div", { class: "pass-value" }, f.value));
+      el.append(h("div", { ...z("fields"), class: "pass-member" + (zone === "fields" && edit ? " is-active" : "") },
+        ml.primary.map((f) => field(f, "pass-primary")),
+        ml.secondary.length ? h("div", { class: "pass-secondary" }, ml.secondary.map((f) => field(f, "pass-field"))) : null,
+        !ml.primary.length ? h("div", { class: "member-empty" }, "Tap to add your name or member number") : null));
     }
 
     const codeWrap = h("div", { ...z("code"), class: "pass-code" + (zone === "code" && edit ? " is-active" : "") });
@@ -300,12 +306,11 @@
     const src = await templateLogo(t);
     const tint = storeLogos[t.name] ? "original" : (t.logoTint || "original");
     const logo = src && tint !== "original" ? await Img.processLogo(src, { removeBg: false, tint }) : src;
-    const style = t.banner || null;
     return {
       name: t.name, template: t.name, numberLabel: t.numberLabel || "Member number",
       bg: t.bg || "#1C1C1E", fg: t.fg || "auto", accent: t.accent || null,
       logo, logoSrc: src, logoRemoveBg: false, logoTint: tint, brandMode: logo ? "logo" : "name", logoFrom: logo ? t.name : null,
-      bannerStyle: style, banner: style ? W.Banners.render(style, t.bg || "#1C1C1E", t.accent) : null,
+      bannerStyle: null, banner: null,
     };
   }
   async function templateCard(t) { return blankCard(await templateDesign(t)); }
@@ -396,7 +401,6 @@
     card.suggested = shot.palette;
     const found = Img.analyzeCard(shot.canvas);
     if (found.logo) await applyLogoCrop(card, found.logo);
-    if (found.banner) applyBannerCrop(card, found.banner);
 
     const [code, text] = await Promise.all([codeP, textP]);
     if (code) { card.code = code.text; card.format = code.format; }
@@ -701,37 +705,11 @@
         draft.logo ? h("button", { class: "btn btn--danger btn--small", type: "button", style: "padding:0", onclick: () => { draft.logo = draft.logoSrc = null; paint(); paintTool(); } }, "Remove logo") : null
       );
     }
-    if (zone === "banner") {
-      const tplAccent = TEMPLATES.find((t) => t.name === draft.template)?.accent;
-      const accent = draft.accent || tplAccent;
-      const pickStyle = (style) => { draft.bannerStyle = style; draft.banner = style ? W.Banners.render(style, draft.bg, accent) : null; paint(); paintTool(); };
-      const pickAccent = (c) => { draft.accent = c; if (draft.bannerStyle) draft.banner = W.Banners.render(draft.bannerStyle, draft.bg, c); paint(); paintTool(); };
-      const accents = [...new Set([tplAccent, "#FFFFFF", "#111111", Color.mix(draft.bg, "#FFFFFF", 0.4), Color.mix(draft.bg, "#000000", 0.4), ...(draft.suggested || []).slice(0, 3)].filter(Boolean).map((c) => c.toUpperCase()))];
-      return tool("Banner",
-        h("div", { class: "banner-options", role: "radiogroup", "aria-label": "Banner style" },
-          h("button", { class: "banner-option banner-option--none", type: "button", role: "radio", "aria-checked": String(!draft.banner), onclick: () => pickStyle(null) }, "None"),
-          W.Banners.STYLES.map((st) => h("button", { class: "banner-option", type: "button", role: "radio", "aria-checked": String(draft.bannerStyle === st && !!draft.banner), "aria-label": W.Banners.LABELS[st],
-            style: `background-image:url(${W.Banners.render(st, draft.bg, accent)})`, onclick: () => pickStyle(st) }, h("span", {}, W.Banners.LABELS[st])))),
-        draft.bannerStyle ? h("div", { style: "margin-top:16px" },
-          h("div", { class: "swatch-label" }, "Pattern color"),
-          h("div", { class: "swatches" },
-            accents.map((c) => h("button", { class: "swatch", type: "button", role: "radio", "aria-checked": String((accent || "").toUpperCase() === c), "aria-label": c, style: `background:${c}`, onclick: () => pickAccent(c) })),
-            h("label", { class: "swatch swatch--custom", "aria-label": "Custom pattern color" },
-              h("input", { type: "color", value: accent || "#FFFFFF", onchange: (e) => pickAccent(e.target.value) })))) : null,
-        h("div", { class: "btn-row", style: "margin-top:12px" },
-          shot ? h("button", { class: "btn btn--secondary btn--small", type: "button", onclick: async () => { await cropInto("banner"); draft.bannerStyle = null; } }, shot.bannerRect ? "Adjust crop" : "Crop from screenshot") : null,
-          h("button", { class: "btn btn--secondary btn--small", type: "button", onclick: async () => { await newImage("banner"); draft.bannerStyle = null; } }, "Use your own image")),
-        h("p", { class: "note" }, "Banners follow your card colors. Pick None for a cleaner card.")
-      );
-    }
     if (zone === "fields") {
       focusPending();
-      return tool("Text on card",
+      return tool("Member info",
         ...optionalFields((key, remove) => optionalField(key, remove, paint), { detailsOnly: false }),
-        h("div", { style: "margin-top:16px" },
-          h("div", { class: "swatch-label" }, "Text position"),
-          seg([["left", "Left"], ["center", "Center"]], draft.textAlign || "left", (v) => { draft.textAlign = v; paint(); paintTool(); }, "Text position")),
-        h("p", { class: "note" }, "Notes and expiry date are under Details.")
+        h("p", { class: "note" }, "Laid out exactly like your Apple Wallet card: the first item large in the middle, the next one below it. Notes and expiry date are under Details.")
       );
     }
     if (zone === "code") {
@@ -750,7 +728,6 @@
         null
       );
     }
-    // Changing the card color also recolors a generated banner
     const setBg = (c) => {
       draft.bg = c;
       // Keep text readable: a fixed text color with too little contrast goes back to automatic
@@ -758,7 +735,6 @@
         const L1 = Color.luminance(c), L2 = Color.luminance(draft.fg);
         if ((Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05) < 3) draft.fg = "auto";
       }
-      if (draft.bannerStyle) draft.banner = W.Banners.render(draft.bannerStyle, c, draft.accent || TEMPLATES.find((t) => t.name === draft.template)?.accent);
       // A white logo on a light card (or black on dark) switches to the version that shows
       if (draft.logoSrc && draft.logoTint !== "original") {
         const tint = autoTint(c);
@@ -819,7 +795,7 @@
           h("select", { onchange: (e) => { draft.format = e.target.value; } }, Object.entries(Barcode.FORMATS).map(([k, v]) => h("option", { value: k, selected: k === draft.format }, v.label))))),
       h("div", { class: "section-label" }, "More details"),
       ...optionalFields((key, remove) => optionalField(key, remove)),
-      h("p", { class: "section-note" }, "Colors, logo and banner are under Design.")
+      h("p", { class: "section-note" }, "Colors and logo are under Design.")
     );
   }
 
@@ -870,7 +846,6 @@
       body: h("div", {},
         renderPass(c),
         h("p", { class: "detail-hint" }, "Turn up the brightness if the scanner struggles."),
-        relayUrl() && c.banner ? h("p", { class: "detail-hint", style: "margin-top:4px" }, "Wallet passes show the logo and colors, but not the banner.") : null,
         h("div", { class: "detail-actions" }, walletBtn,
           c.code ? h("button", { class: "btn btn--secondary btn--block", type: "button", onclick: async () => {
             try { await navigator.clipboard.writeText(c.number || c.code); toast("Number copied"); } catch { toast("Couldn’t copy on this device"); }
@@ -912,11 +887,9 @@
       organization_name: c.name || "Card",
       description: (c.name || "Member") + " card",
       background_color: c.bg, foreground_color: fg, label_color: Color.mix(fg, c.bg, 0.35),
-      secondary_fields: [
-        ...(c.memberName ? [{ key: "name", label: "Name", value: c.memberName }] : []),
-        ...(c.number ? [{ key: "number", label: c.numberLabel || "Member number", value: c.number }] : []),
-      ],
-      header_fields: c.headerValue ? [{ key: "header", label: c.headerLabel || "", value: c.headerValue }] : [],
+      primary_fields: memberLayout(c).primary,
+      secondary_fields: memberLayout(c).secondary,
+      header_fields: c.headerValue ? [{ key: "header", label: (c.headerLabel || "").toUpperCase(), value: c.headerValue }] : [],
       back_fields: [
         ...(c.notes ? [{ key: "notes", label: "Notes", value: c.notes }] : []),
         ...(c.number ? [{ key: "number-back", label: c.numberLabel || "Member number", value: c.number }] : []),
@@ -939,19 +912,35 @@
     return args;
   }
 
+  // iPhone only opens a new page or the share sheet straight from a tap, so slow work
+  // (signing the pass) happens on the first tap and the action on the second.
+  async function makePass(c) {
+    const res = await fetch(relayUrl(), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(await passArgs(c)) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.download_url) throw new Error(data.error || "Couldn’t make the pass right now");
+    return data.download_url;
+  }
+  function setBtn(btn, iconName, text, spinning) {
+    btn.innerHTML = "";
+    btn.append(spinning ? h("span", { class: "spinner" }) : icon(ICONS[iconName]), text);
+  }
   async function signAndAdd(c, btn) {
-    const label = btn.innerHTML;
-    btn.disabled = true; btn.innerHTML = ""; btn.append(h("span", { class: "spinner" }), "Making your pass");
-    try {
-      const res = await fetch(relayUrl(), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(await passArgs(c)) });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.download_url) throw new Error(data.error || "Couldn’t make the pass right now");
-      window.location.href = data.download_url; // Apple's Add to Apple Wallet screen opens
-    } catch (e) {
-      toast(navigator.onLine === false ? "You’re offline. Try again with internet." : e.message, 4200);
-    } finally {
-      btn.disabled = false; btn.innerHTML = label;
+    const ready = btn.dataset.url && Date.now() < +btn.dataset.until;
+    if (ready) {
+      const w = window.open(btn.dataset.url, "_blank"); // Safari shows Apple’s Add to Apple Wallet screen
+      if (!w) location.href = btn.dataset.url;
+      return;
     }
+    btn.disabled = true; setBtn(btn, "wallet", "Making your pass…", true);
+    try {
+      btn.dataset.url = await makePass(c);
+      btn.dataset.until = Date.now() + 50 * 60 * 1000; // the link lasts an hour
+      setBtn(btn, "wallet", "Pass ready. Tap to add to Wallet");
+      btn.classList.add("btn--ready");
+    } catch (e) {
+      setBtn(btn, "wallet", "Add to Apple Wallet");
+      toast(navigator.onLine === false ? "You’re offline. Try again with internet." : e.message, 4200);
+    } finally { btn.disabled = false; }
   }
 
   // ---------- Sharing ----------
@@ -973,14 +962,13 @@
     return c.toDataURL(type, q);
   }
 
-  // A link that opens Cardfolio with this card ready to save. Template logos and
-  // generated banners are rebuilt on the other phone, so the link stays short.
+  // A link that opens Cardfolio with this card ready to save. Template logos are
+  // rebuilt on the other phone, so the link stays short.
   async function cardLink(c) {
-    const keep = ["name", "brandMode", "template", "bannerStyle", "accent", "bg", "fg", "logoTint", "logoFrom", "headerLabel", "headerValue",
+    const keep = ["name", "brandMode", "template", "accent", "bg", "fg", "logoTint", "logoFrom", "headerLabel", "headerValue",
       "memberName", "numberLabel", "number", "code", "format", "showCode", "notes", "expires", "textAlign"];
     const p = {}; keep.forEach((k) => { if (c[k] != null && c[k] !== "") p[k] = c[k]; });
     if (!c.logoFrom && c.logo) p.logo = await shrink(c.logo, 360, 120, "image/png");
-    if (!c.bannerStyle && c.banner) p.banner = await shrink(c.banner, 600, 200, "image/jpeg", 0.72);
     const packed = b64url(await gzip(new TextEncoder().encode(JSON.stringify(p))));
     return location.origin + location.pathname + "#add=" + packed;
   }
@@ -993,7 +981,6 @@
       card.logoSrc = src;
       card.logo = src && p.logoTint && p.logoTint !== "original" ? await Img.processLogo(src, { removeBg: false, tint: p.logoTint }) : src;
     } else if (p.logo) { card.logoSrc = p.logo; card.logoFrom = null; }
-    if (p.bannerStyle) card.banner = W.Banners.render(p.bannerStyle, card.bg, p.accent || TEMPLATES.find((x) => x.name === p.template)?.accent);
     return card;
   }
   async function checkIncoming() {
@@ -1020,27 +1007,36 @@
     const option = (cls, ic, title, sub, onclick) => h("button", { class: "option " + cls, type: "button", onclick },
       h("span", { class: "option-icon" }, icon(ic)),
       h("span", { class: "row-main" }, h("div", { class: "row-title", style: "font-weight:600" }, title), h("div", { class: "row-sub" }, sub)));
-    const busy = (btn, fn) => async () => {
-      const sub = btn.querySelector(".row-sub"), was = sub.textContent;
-      sub.textContent = "Preparing…"; btn.disabled = true;
-      try { await fn(); } catch (e) { toast(e.message || "Couldn’t share right now", 4000); }
-      finally { sub.textContent = was; btn.disabled = false; }
+    // Each option prepares its file or link, then shares straight from the tap
+    const shareOption = (ic, title, idle, prepare, send, eager) => {
+      const btn = option("", ic, title, idle, null);
+      const sub = btn.querySelector(".row-sub");
+      let value = null, job = null;
+      const run = () => (job ||= prepare().then((v) => { value = v; sub.textContent = "Ready. Tap to send"; btn.classList.add("option--ready"); return v; })
+        .catch((e) => { job = null; sub.textContent = idle; toast(e.message || "Couldn’t prepare that right now", 4200); }));
+      if (eager) run();
+      btn.onclick = () => {
+        if (value) { send(value); return; }
+        sub.textContent = "Preparing…";
+        run();
+      };
+      return btn;
     };
-    const linkBtn = option("", ICONS.link, "Send as a link", "Opens in Cardfolio, where they can save it", null);
-    linkBtn.onclick = busy(linkBtn, async () => {
-      const url = await cardLink(c);
-      if (navigator.share) { try { await navigator.share({ title: c.name + " card", url }); } catch {} }
-      else { await navigator.clipboard.writeText(url); toast("Link copied"); }
-    });
-    const passBtn = option("", ICONS.wallet, "Send as an Apple Wallet pass", "They tap it to add it to their Wallet", null);
-    passBtn.onclick = busy(passBtn, async () => {
+    const shareNow = (data) => {
+      if (data.files && !navigator.canShare?.(data)) { download(data.files[0], data.files[0].name); return; }
+      if (!navigator.share) { if (data.url) navigator.clipboard?.writeText(data.url).then(() => toast("Link copied")); return; }
+      navigator.share(data).catch((e) => { if (e?.name !== "AbortError") toast("Sharing isn’t available here", 3000); });
+    };
+    const linkBtn = shareOption(ICONS.link, "Send as a link", "Opens in Cardfolio, where they can save it",
+      () => cardLink(c), (url) => shareNow({ title: c.name + " card", url }), true);
+    const passBtn = shareOption(ICONS.wallet, "Send as an Apple Wallet pass", "They tap it to add it to their Wallet", async () => {
       if (!relayUrl()) throw new Error("Wallet passes need the signing relay");
       const res = await fetch(relayUrl() + "?file=1", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(await passArgs(c)) });
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || "Couldn’t make the pass right now"); }
-      await shareFile(new File([await res.blob()], fileName(c, "pkpass"), { type: "application/vnd.apple.pkpass" }), c.name);
-    });
-    const imgBtn = option("", ICONS.image, "Save or send as an image", "A picture of the card with its barcode", null);
-    imgBtn.onclick = busy(imgBtn, async () => shareFile(new File([await cardImage(c)], fileName(c, "png"), { type: "image/png" }), c.name));
+      return new File([await res.blob()], fileName(c, "pkpass"), { type: "application/vnd.apple.pkpass" });
+    }, (file) => shareNow({ files: [file], title: c.name }), false);
+    const imgBtn = shareOption(ICONS.image, "Save or send as an image", "A picture of the card with its barcode",
+      async () => new File([await cardImage(c)], fileName(c, "png"), { type: "image/png" }), (file) => shareNow({ files: [file], title: c.name }), true);
     sheet("sheet-share", {
       left: textBtn("Back", () => close("sheet-share")),
       title: "Share card",
@@ -1066,13 +1062,6 @@
       x.fillStyle = fg; x.font = "600 72px 'Instrument Sans', system-ui, sans-serif";
       x.fillText(c.name || "Card", 80, 170);
     }
-    if (c.banner) {
-      const img = await Img.loadURL(c.banner);
-      const bh = W * 123 / 375, s = Math.max(W / img.naturalWidth, bh / img.naturalHeight);
-      x.save(); x.beginPath(); x.rect(0, 280, W, bh); x.clip();
-      x.drawImage(img, (W - img.naturalWidth * s) / 2, 280 + (bh - img.naturalHeight * s) / 2, img.naturalWidth * s, img.naturalHeight * s);
-      x.restore();
-    }
     if (c.code && c.format !== "none") {
       const bc = await Barcode.canvas(c.format, c.code, 6).catch(() => null);
       if (bc) {
@@ -1096,14 +1085,18 @@
       h("span", { class: "row-value", style: "color:var(--accent)" }, "Copy")) : null;
     const step = (n, title, text) => h("div", { class: "step" }, h("span", { class: "step-dot" }, String(n)),
       h("div", { class: "step-body" }, h("div", { class: "row-title", style: "font-weight:600" }, title), text ? h("p", {}, text) : null));
-    const saveBtn = h("button", { class: "btn btn--primary btn--block", type: "button", onclick: async () => {
-      const blob = await cardImage(c);
-      const file = new File([blob], `${(c.name || "card").replace(/[^\w-]+/g, "-")}-card.png`, { type: "image/png" });
-      if (navigator.canShare?.({ files: [file] })) navigator.share({ files: [file] }).catch(() => {});
-      else download(file, file.name);
+    let imageFile = null;
+    const saveBtn = h("button", { class: "btn btn--primary btn--block", type: "button", disabled: true, onclick: () => {
+      if (!imageFile) return;
+      if (navigator.canShare?.({ files: [imageFile] })) navigator.share({ files: [imageFile] }).catch(() => {});
+      else download(imageFile, imageFile.name);
     } }, "Save card image");
     const preview = h("img", { alt: "Card image for Wallet", style: "width:100%;border-radius:16px;display:block" });
-    cardImage(c).then((b) => { preview.src = URL.createObjectURL(b); });
+    cardImage(c).then((b) => {
+      preview.src = URL.createObjectURL(b);
+      imageFile = new File([b], fileName(c, "png"), { type: "image/png" });
+      saveBtn.disabled = false;
+    });
 
     sheet("sheet-wallet", {
       left: textBtn("Back", () => close("sheet-wallet")),
