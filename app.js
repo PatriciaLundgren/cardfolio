@@ -81,10 +81,15 @@
   // Labels are uppercase on both, so the preview matches Wallet exactly.
   function memberLayout(c) {
     const items = [];
-    if (c.memberName) items.push({ key: "name", label: "NAME", value: c.memberName });
+    if (c.memberName) items.push({ key: "name", label: "", value: c.memberName });
     if (c.number) items.push({ key: "number", label: (c.numberLabel || "Member number").toUpperCase(), value: c.number });
     return { primary: items.slice(0, 1), secondary: items.slice(1) };
   }
+  // What's printed under the barcode: its own content (default), the member number, or nothing
+  const underCode = (c) => {
+    const mode = c.altText || (c.showCode === false ? "none" : "code");
+    return mode === "none" ? "" : mode === "number" ? (c.number || c.code) : c.code;
+  };
   // logo | logo+name | name. Older cards used showName.
   const brandMode = (c) => c.brandMode || (c.showName ? "logo+name" : "logo");
   const ink = (c) => (c.fg === "auto" || !c.fg ? Color.autoInk(c.bg) : c.fg);
@@ -163,7 +168,7 @@
     const svg = c.code && c.format !== "none" ? Barcode.svg(c.format, c.code) : null;
     if (svg) {
       codeWrap.append(h("div", { class: "code-box" + (Barcode.FORMATS[c.format]?.square ? " code-box--square" : ""), html: svg },
-        c.showCode ? h("div", { class: "code-alt" }, c.code) : null));
+        underCode(c) ? h("div", { class: "code-alt" }, underCode(c)) : null));
     } else if (c.code) {
       codeWrap.append(h("div", { class: "code-box" }, h("div", { class: "code-empty" }, "This number doesn’t fit the format. Try Code 128."), h("div", { class: "code-alt" }, c.code)));
     } else if (edit) {
@@ -333,6 +338,34 @@
     "Circle K": ["circle k", "circlek"], "7-Eleven": ["7 eleven", "7eleven"], "Library card": ["bibliotek", "library"],
     "Friskis&Svettis": ["friskis"], "Nordic Wellness": ["nordic wellness", "nordicwellness"], "XXL": ["xxl"],
   };
+  // Member details printed on the screenshot: the longest number (8+ digits, spaces
+  // and dashes allowed), the label just before it (like "Kundnummer:"), and a name
+  // (two or three capitalised words, not app buttons or store names).
+  const NOT_NAMES = ["betala", "appen", "butiker", "recept", "kundnummer", "medlemsnummer", "medlem", "stammis", "kort",
+    "card", "member", "number", "points", "poang", "bonus", "erbjudanden", "hem", "konto", "profil", "visa", "scan", "skanna"];
+  function cardInfo(text) {
+    const lines = (text || "").split(/\n+/).map((l) => l.trim()).filter(Boolean);
+    let number = "", label = "", best = 0;
+    lines.forEach((line, i) => {
+      for (const m of line.match(/\d[\d \-]{6,}\d/g) || []) {
+        const n = m.replace(/\D/g, "").length;
+        if (n < 8 || n <= best) continue;
+        best = n; number = m.trim().replace(/\s{2,}/g, " ");
+        const before = line.slice(0, line.indexOf(m)).replace(/[:\s]+$/, "").trim();
+        const prev = (lines[i - 1] || "").trim();
+        const cand = before || (/:$/.test(prev) || /nummer|number|nr\b|id\b/i.test(prev) ? prev.replace(/:$/, "").trim() : "");
+        label = /^[\p{L} .-]{2,24}$/u.test(cand) ? cand : "";
+      }
+    });
+    const stores = TEMPLATES.map((t) => norm(t.name));
+    const name = lines.find((l) => {
+      const word = "\\p{Lu}[\\p{Ll}']+(?:-\\p{Lu}[\\p{Ll}']+)?";
+      if (!new RegExp("^" + word + "( " + word + "){1,2}$", "u").test(l)) return false;
+      const n = norm(l);
+      return !stores.some((s) => n.includes(s)) && !n.split(" ").some((w) => NOT_NAMES.includes(w));
+    }) || "";
+    return { number, label, name };
+  }
   function matchByText(text) {
     const words = " " + norm(text) + " ";
     let best = null;
@@ -404,12 +437,21 @@
 
     const [code, text] = await Promise.all([codeP, textP]);
     if (code) { card.code = code.text; card.format = code.format; }
+    const info = cardInfo(text);
+    if (info.number) { card.number = info.number; if (info.label) card.numberLabel = info.label; }
+    if (info.name) card.memberName = info.name;
+    // Only print the barcode's content under it when it matches the number on the card
+    const digits = (t) => (t || "").replace(/\D/g, "");
+    card.altText = !card.code ? "code"
+      : info.number ? (digits(card.code) === digits(info.number) ? "code" : "none")
+      : card.format === "qr" ? "none" : "code";
 
     let applied = null;
     const byText = matchByText(text);
     if (byText) {
       applied = { t: byText, own: JSON.parse(JSON.stringify(card)) };
-      Object.assign(card, await templateDesign(byText), { code: card.code, format: card.format });
+      Object.assign(card, await templateDesign(byText), { code: card.code, format: card.format, number: card.number, altText: card.altText,
+        memberName: card.memberName, ...(info.label ? { numberLabel: info.label } : {}) });
     }
     const match = applied ? null : await matchTemplate(card);
     toast(code ? (applied ? applied.t.name + " design added, with your barcode" : "Barcode added. Tap any part to fine-tune.")
@@ -724,7 +766,12 @@
           h("input", { class: "input-solo", value: draft.code, placeholder: "Barcode number or text", inputmode: "text", "aria-label": "Barcode", oninput: (e) => { draft.code = e.target.value.trim(); paint(); } }),
           h("select", { class: "input-solo", "aria-label": "Barcode format", onchange: (e) => { draft.format = e.target.value; paint(); paintTool(); } },
             Object.entries(Barcode.FORMATS).map(([k, v]) => h("option", { value: k, selected: k === draft.format }, v.label)))),
-        h("div", { class: "tool-row", style: "margin-top:8px" }, h("label", {}, "Show number under barcode"), sw(draft.showCode, (v) => { draft.showCode = v; paint(); }, "Show number under barcode")),
+        h("div", { style: "margin-top:12px" },
+          h("div", { class: "swatch-label" }, "Text under the barcode"),
+          seg([["code", "What it contains"], ["number", "Member number"], ["none", "Nothing"]],
+            draft.altText || (draft.showCode === false ? "none" : "code"), (v) => { draft.altText = v; paint(); paintTool(); }, "Text under the barcode")),
+        draft.code && draft.number && draft.code.replace(/\D/g, "") !== draft.number.replace(/\D/g, "")
+          ? h("p", { class: "note" }, "This barcode holds different text than your member number. That’s normal for many store apps, whose codes carry their own ID.") : null,
         null
       );
     }
@@ -966,7 +1013,7 @@
   // rebuilt on the other phone, so the link stays short.
   async function cardLink(c) {
     const keep = ["name", "brandMode", "template", "accent", "bg", "fg", "logoTint", "logoFrom", "headerLabel", "headerValue",
-      "memberName", "numberLabel", "number", "code", "format", "showCode", "notes", "expires", "textAlign"];
+      "memberName", "numberLabel", "number", "code", "format", "showCode", "altText", "notes", "expires", "textAlign"];
     const p = {}; keep.forEach((k) => { if (c[k] != null && c[k] !== "") p[k] = c[k]; });
     if (!c.logoFrom && c.logo) p.logo = await shrink(c.logo, 360, 120, "image/png");
     const packed = b64url(await gzip(new TextEncoder().encode(JSON.stringify(p))));
