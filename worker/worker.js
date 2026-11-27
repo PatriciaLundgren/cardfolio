@@ -24,6 +24,15 @@ export default {
       new Response(JSON.stringify(data), { status, headers: { ...cors, "Content-Type": "application/json" } });
 
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
+
+    // GET /pass/<id> hands the signed pass to Safari with Apple's pass type,
+    // so iPhone shows its Add to Apple Wallet screen right away.
+    const path = new URL(request.url).pathname.match(/^\/pass\/([A-Za-z0-9_-]{8,80})$/);
+    if (request.method === "GET" && path) {
+      const file = await fetch("https://walletmcppass.com/download/" + path[1]);
+      if (!file.ok) return new Response("This pass has expired. Go back to Cardfolio and create it again.", { status: 410, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+      return new Response(file.body, { headers: { "Content-Type": "application/vnd.apple.pkpass", "Content-Disposition": "inline; filename=card.pkpass", "Cache-Control": "no-store" } });
+    }
     if (request.method !== "POST" || !allowed) return json({ error: "Not allowed" }, 403);
 
     const body = await request.text();
