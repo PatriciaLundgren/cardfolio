@@ -67,8 +67,15 @@ dialog:focus, dialog:focus-visible { outline: none; }
 img { max-width: 100%; }
 
 /* iOS 26+ blurs the top edge of web pages under the status bar (the Liquid Glass
-   scroll edge effect). WebKit skips that blur when a full-width fixed bar with a
-   solid color sits at the very top, so this strip gives it one in our background. */
+   scroll edge effect) whenever the page itself scrolls under it. So the page never
+   scrolls: only the home screen's own area does, and it starts below the status bar.
+   The solid strip covers the status bar area as a second guard. */
+html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+#home {
+  height: 100%; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+  padding-top: 6px; /* a little breathing room under the status bar */
+}
+.lock { height: 100%; overflow-y: auto; }
 body::before {
   content: ""; position: fixed; top: 0; left: 0; right: 0; z-index: 40;
   height: max(12px, env(safe-area-inset-top, 0px));
